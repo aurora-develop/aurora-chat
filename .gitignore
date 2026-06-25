@@ -1,5 +1,33 @@
+# Dependencies
 node_modules/
+
+# Build output
+dist/
+
+# TypeScript build cache
+*.tsbuildinfo
+
+# Vite generated types
+vite.config.d.ts
+
+# Claude Code
 .claude/
+
+# Task planning files
 findings.md
 task_plan.md
 progress.md
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+Thumbs.db
+.DS_Store

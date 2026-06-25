@@ -18,6 +18,30 @@
 - 📱 **响应式布局**：桌面端可折叠侧边栏，移动端抽屉式导航
 - ⚡ **代码分割**：按路由懒加载，首屏加载更快
 
+## 界面预览
+
+### 聊天页面
+
+| 浅色模式 | 深色模式 |
+|:---:|:---:|
+| ![聊天 - 浅色](docs/screenshots/chat-light.png) | ![聊天 - 深色](docs/screenshots/chat-dark.png) |
+
+### 图片生成
+
+| 浅色模式 | 深色模式 |
+|:---:|:---:|
+| ![图片 - 浅色](docs/screenshots/images-light.png) | ![图片 - 深色](docs/screenshots/images-dark.png) |
+
+### 语音功能
+
+![语音 - 浅色](docs/screenshots/audio-light.png)
+
+### 设置页面
+
+| Token 与自定义 API | 深色模式 |
+|:---:|:---:|
+| ![设置 - 自定义 API](docs/screenshots/settings-api-light.png) | ![设置 - 深色](docs/screenshots/settings-dark.png) |
+
 ## 技术栈
 
 - React 18 + TypeScript
@@ -60,6 +84,28 @@ pnpm build
 ```
 
 构建产物位于 `dist/` 目录。
+
+### 部署到 Vercel
+
+项目已内置 `vercel.json`，支持零配置部署：
+
+1. 在 [vercel.com](https://vercel.com) 导入 Git 仓库，或安装 Vercel CLI：
+
+   ```bash
+   npm i -g vercel
+   ```
+
+2. 在项目根目录执行：
+
+   ```bash
+   vercel
+   ```
+
+3. 按提示确认项目配置，Vercel 会自动检测 Vite 框架并构建部署
+
+后续推送代码到 main 分支时，Vercel 会自动触发重新部署。
+
+> **提示**：部署到 Vercel 后，使用自定义 API 功能无需自建后端，直接在设置页面配置第三方 API 地址即可。
 
 ## 配置说明
 
