@@ -7,13 +7,14 @@ export interface RequestConfig {
   headers?: Record<string, string>;
   body?: any;
   stream?: boolean;
+  signal?: AbortSignal;
 }
 
 export async function apiRequest<T>(
   endpoint: string,
   config: RequestConfig = {}
 ): Promise<T> {
-  const { method = 'POST', headers = {}, body, stream = false } = config;
+  const { method = 'POST', headers = {}, body, stream = false, signal } = config;
 
   const token = localStorage.getItem('aurora_token');
 
@@ -29,6 +30,7 @@ export async function apiRequest<T>(
     method,
     headers: { ...defaultHeaders, ...headers },
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   if (!response.ok) {
@@ -45,7 +47,8 @@ export async function apiRequest<T>(
 
 export async function* streamSSE<T>(
   endpoint: string,
-  body: any
+  body: any,
+  signal?: AbortSignal
 ): AsyncGenerator<T> {
   const token = localStorage.getItem('aurora_token');
 
@@ -56,6 +59,7 @@ export async function* streamSSE<T>(
       'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {
@@ -94,7 +98,8 @@ export async function* streamSSE<T>(
 
 export async function uploadFile(
   endpoint: string,
-  formData: FormData
+  formData: FormData,
+  signal?: AbortSignal
 ): Promise<any> {
   const token = localStorage.getItem('aurora_token');
 
@@ -104,6 +109,7 @@ export async function uploadFile(
       'Authorization': `Bearer ${token}`,
     },
     body: formData,
+    signal,
   });
 
   if (!response.ok) {
@@ -116,7 +122,8 @@ export async function uploadFile(
 
 export async function downloadBlob(
   endpoint: string,
-  body: any
+  body: any,
+  signal?: AbortSignal
 ): Promise<Blob> {
   const token = localStorage.getItem('aurora_token');
 
@@ -127,6 +134,7 @@ export async function downloadBlob(
       'Authorization': `Bearer ${token}`,
     },
     body: JSON.stringify(body),
+    signal,
   });
 
   if (!response.ok) {

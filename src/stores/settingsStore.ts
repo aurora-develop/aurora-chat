@@ -25,6 +25,7 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'aurora-settings',
+      version: 1,
     }
   )
 );
