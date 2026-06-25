@@ -2,12 +2,34 @@
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8080';
 
+/** 获取当前生效的 API 配置（支持自定义 API） */
+function getApiConfig(): { baseUrl: string; apiKey: string; isCustom: boolean } {
+  const settings = JSON.parse(localStorage.getItem('aurora-settings') || '{}');
+  const state = settings.state || {};
+
+  if (state.useCustomApi && state.customApiUrl) {
+    return {
+      baseUrl: state.customApiUrl.replace(/\/+$/, ''),
+      apiKey: state.customApiKey || '',
+      isCustom: true,
+    };
+  }
+
+  return {
+    baseUrl: API_BASE_URL,
+    apiKey: localStorage.getItem('aurora_token') || '',
+    isCustom: false,
+  };
+}
+
 export interface RequestConfig {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   headers?: Record<string, string>;
   body?: any;
   stream?: boolean;
   signal?: AbortSignal;
+  /** 强制使用自定义 API 配置 */
+  useCustomApi?: boolean;
 }
 
 export async function apiRequest<T>(
@@ -16,17 +38,24 @@ export async function apiRequest<T>(
 ): Promise<T> {
   const { method = 'POST', headers = {}, body, stream = false, signal } = config;
 
-  const token = localStorage.getItem('aurora_token');
+  const apiConfig = getApiConfig();
 
   const defaultHeaders: Record<string, string> = {
     'Content-Type': 'application/json',
   };
 
-  if (token) {
-    defaultHeaders['Authorization'] = `Bearer ${token}`;
+  if (apiConfig.isCustom) {
+    if (apiConfig.apiKey) {
+      defaultHeaders['Authorization'] = `Bearer ${apiConfig.apiKey}`;
+    }
+  } else {
+    const token = localStorage.getItem('aurora_token');
+    if (token) {
+      defaultHeaders['Authorization'] = `Bearer ${token}`;
+    }
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const response = await fetch(`${apiConfig.baseUrl}${endpoint}`, {
     method,
     headers: { ...defaultHeaders, ...headers },
     body: body ? JSON.stringify(body) : undefined,
@@ -50,14 +79,26 @@ export async function* streamSSE<T>(
   body: any,
   signal?: AbortSignal
 ): AsyncGenerator<T> {
-  const token = localStorage.getItem('aurora_token');
+  const apiConfig = getApiConfig();
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (apiConfig.isCustom) {
+    if (apiConfig.apiKey) {
+      headers['Authorization'] = `Bearer ${apiConfig.apiKey}`;
+    }
+  } else {
+    const token = localStorage.getItem('aurora_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  const response = await fetch(`${apiConfig.baseUrl}${endpoint}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify(body),
     signal,
   });
@@ -101,13 +142,24 @@ export async function uploadFile(
   formData: FormData,
   signal?: AbortSignal
 ): Promise<any> {
-  const token = localStorage.getItem('aurora_token');
+  const apiConfig = getApiConfig();
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const headers: Record<string, string> = {};
+
+  if (apiConfig.isCustom) {
+    if (apiConfig.apiKey) {
+      headers['Authorization'] = `Bearer ${apiConfig.apiKey}`;
+    }
+  } else {
+    const token = localStorage.getItem('aurora_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  const response = await fetch(`${apiConfig.baseUrl}${endpoint}`, {
     method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
     body: formData,
     signal,
   });
@@ -125,14 +177,26 @@ export async function downloadBlob(
   body: any,
   signal?: AbortSignal
 ): Promise<Blob> {
-  const token = localStorage.getItem('aurora_token');
+  const apiConfig = getApiConfig();
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+  };
+
+  if (apiConfig.isCustom) {
+    if (apiConfig.apiKey) {
+      headers['Authorization'] = `Bearer ${apiConfig.apiKey}`;
+    }
+  } else {
+    const token = localStorage.getItem('aurora_token');
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    }
+  }
+
+  const response = await fetch(`${apiConfig.baseUrl}${endpoint}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'Authorization': `Bearer ${token}`,
-    },
+    headers,
     body: JSON.stringify(body),
     signal,
   });

@@ -1,1 +1,0 @@
-import{c as a,p as r}from"./index-BiFfI4sH.js";const s=a()(r(t=>({token:"",model:"auto",streamEnabled:!0,setToken:e=>{localStorage.setItem("aurora_token",e),t({token:e})},setModel:e=>t({model:e}),setStreamEnabled:e=>t({streamEnabled:e})}),{name:"aurora-settings",version:1}));export{s as u};

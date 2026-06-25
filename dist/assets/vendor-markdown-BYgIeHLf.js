@@ -1,4 +1,4 @@
-import{r as Fo,g as fr}from"./vendor-icons-uFW8cw6K.js";var Mt={exports:{}},Pn={};/**
+import{r as Fo,g as fr}from"./vendor-icons-Bcx2Zw3n.js";var Mt={exports:{}},Pn={};/**
  * @license React
  * react-jsx-runtime.production.min.js
  *

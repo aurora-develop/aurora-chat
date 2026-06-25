@@ -5,7 +5,7 @@ import rehypeHighlight from 'rehype-highlight';
 import {
   Send, Paperclip, Bot, User, Code, Lightbulb, Image as ImageIcon,
   Copy, Check, RefreshCw, Square, Pencil, ChevronLeft, ChevronRight,
-  ThumbsUp, ThumbsDown, ChevronDown, Trash2
+  ThumbsUp, ThumbsDown, ChevronDown, Trash2, Globe
 } from 'lucide-react';
 import { useChatStore, type MessageNode } from '../stores/chatStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -131,7 +131,7 @@ export default function ChatView() {
     setConversationModel,
   } = useChatStore();
 
-  const { model, streamEnabled } = useSettingsStore();
+  const { model, streamEnabled, useCustomApi, customApiUrl } = useSettingsStore();
   const [input, setInput] = useState('');
   const [uploadedFiles, setUploadedFiles] = useState<string[]>([]);
   const [copiedId, setCopiedId] = useState<string | null>(null);
@@ -501,7 +501,18 @@ export default function ChatView() {
   return (
     <div className="flex flex-col h-full bg-aurora-bg-light dark:bg-aurora-bg-dark transition-colors duration-150">
       <header className="h-14 flex items-center justify-between px-6 border-b border-aurora-border-light dark:border-aurora-border-dark">
-        <h2 className="text-base font-medium text-aurora-text-primary dark:text-aurora-text-dark-primary">聊天</h2>
+        <div className="flex items-center gap-2">
+          {useCustomApi && customApiUrl && (
+            <span
+              className="flex items-center gap-1 px-2 py-0.5 text-[10px] font-medium rounded-full bg-aurora-accent/10 text-aurora-accent dark:bg-aurora-accent-dark/10 dark:text-aurora-accent-dark border border-aurora-accent/20 dark:border-aurora-accent-dark/20"
+              title={`自定义 API: ${customApiUrl}`}
+            >
+              <Globe className="w-2.5 h-2.5" />
+              自定义 API
+            </span>
+          )}
+          <h2 className="text-base font-medium text-aurora-text-primary dark:text-aurora-text-dark-primary">聊天</h2>
+        </div>
         <div className="relative" ref={modelMenuRef}>
           <button
             onClick={() => setModelMenuOpen((v) => !v)}
