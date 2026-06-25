@@ -1,0 +1,4 @@
+node_modules/
+.claude/
+findings.md
+task_plan.md
