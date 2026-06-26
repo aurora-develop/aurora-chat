@@ -215,6 +215,11 @@ Aurora Chat 支持连接任意遵循 OpenAI `/v1/chat/completions` 格式的 API
 - 免费 UUID 账号仅支持普通聊天
 - 后端服务需正确配置 CORS，Aurora 默认已启用
 
+## 友链
+
+- [linux.do](https://linux.do/)
+
+
 ## License
 
 MIT
