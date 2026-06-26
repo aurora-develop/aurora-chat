@@ -49,19 +49,24 @@ export function useChatCompletion() {
     requestMessages: Message[],
     activeModel: string,
   ) => {
-    const { streamEnabled } = getSettings();
+    const { streamEnabled, reasoningEffort } = getSettings();
     const { updateMessage: update } = getStore();
 
     const abortController = new AbortController();
     setAbortController(abortController);
 
+    const requestPayload: any = {
+      model: activeModel,
+      messages: requestMessages,
+      stream: true,
+    };
+    if (reasoningEffort && reasoningEffort !== 'medium') {
+      requestPayload.reasoning_effort = reasoningEffort;
+    }
+
     try {
       if (streamEnabled) {
-        const stream = chatCompletionStream({
-          model: activeModel,
-          messages: requestMessages,
-          stream: true,
-        }, abortController.signal);
+        const stream = chatCompletionStream(requestPayload, abortController.signal);
 
         // P0-1: requestAnimationFrame 节流
         let fullContent = '';
@@ -95,8 +100,7 @@ export function useChatCompletion() {
         }
       } else {
         const response = await chatCompletion({
-          model: activeModel,
-          messages: requestMessages,
+          ...requestPayload,
           stream: false,
         }, abortController.signal);
 

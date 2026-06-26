@@ -43,6 +43,7 @@ export interface ChatRequest {
   stream?: boolean;
   tools?: Tool[];
   tool_choice?: 'auto' | 'none' | 'any' | { type: 'function'; function: { name: string } };
+  reasoning_effort?: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 }
 
 export interface ChatResponse {

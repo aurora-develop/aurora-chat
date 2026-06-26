@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Paperclip, Bot, User, Code, Lightbulb, Image as ImageIcon,
   Copy, Check, Square, Pencil, ChevronLeft, ChevronRight,
-  ThumbsUp, ThumbsDown, ChevronDown, Trash2, Globe, WifiOff, Download, MoreHorizontal
+  ThumbsUp, ThumbsDown, ChevronDown, Trash2, Globe, WifiOff, Download, MoreHorizontal, Mic, MicOff, Pin, Share2, Volume2
 } from 'lucide-react';
 import { useChatStore, type MessageNode } from '../stores/chatStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -13,6 +13,7 @@ import MemoizedMarkdown from './MemoizedMarkdown';
 import RegenerateWithModel from './RegenerateWithModel';
 import PromptTemplates from './PromptTemplates';
 import MessageSearch from './MessageSearch';
+import VoiceChat from './VoiceChat';
 
 export default function ChatView() {
   const {
@@ -20,6 +21,7 @@ export default function ChatView() {
     messages,
     currentConversationId,
     streamingMessageId,
+    pinnedMessages,
     createConversation,
     addMessage,
     updateMessage,
@@ -28,9 +30,10 @@ export default function ChatView() {
     getSiblingInfo,
     switchSibling,
     setConversationModel,
+    togglePinMessage,
   } = useChatStore();
 
-  const { useCustomApi, customApiUrl } = useSettingsStore();
+  const { useCustomApi, customApiUrl, reasoningEffort, setReasoningEffort, sendMode } = useSettingsStore();
   const { generateResponse, handleRegenerate, handleStop } = useChatCompletion();
 
   const [input, setInput] = useState('');
@@ -52,6 +55,13 @@ export default function ChatView() {
   const [showScrollBtn, setShowScrollBtn] = useState(false);
   const [expandedActionId, setExpandedActionId] = useState<string | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  const [voiceChatOpen, setVoiceChatOpen] = useState(false);
+  // 语音输入
+  const [isListening, setIsListening] = useState(false);
+  const recognitionRef = useRef<any>(null);
+  const [speechSupported] = useState(() => {
+    return typeof window !== 'undefined' && ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+  });
   // P0-6: 发送历史 + 草稿保存
   const [sentHistory] = useState<string[]>(() => {
     try { return JSON.parse(localStorage.getItem('aurora-sent-history') || '[]'); } catch { return []; }
@@ -198,6 +208,47 @@ export default function ChatView() {
 
   const handleSend = () => sendMessage(input, currentConversation?.currentLeafId || null);
 
+  // 语音输入 toggle
+  const toggleListening = useCallback(() => {
+    if (!speechSupported) return;
+
+    if (isListening) {
+      recognitionRef.current?.stop();
+      setIsListening(false);
+      return;
+    }
+
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.lang = 'zh-CN';
+    recognition.interimResults = true;
+    recognition.continuous = true;
+
+    recognition.onresult = (event: any) => {
+      let transcript = '';
+      for (let i = 0; i < event.results.length; i++) {
+        transcript += event.results[i][0].transcript;
+      }
+      setInput(prev => {
+        // 如果之前有内容，追加；否则直接设置
+        const prevText = prev.replace(/\s+$/, '');
+        return prevText ? prevText + ' ' + transcript : transcript;
+      });
+    };
+
+    recognition.onerror = () => {
+      setIsListening(false);
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.start();
+    recognitionRef.current = recognition;
+    setIsListening(true);
+  }, [isListening, speechSupported]);
+
   const handleEdit = (messageId: string) => {
     const msg = messages[messageId];
     if (!msg || msg.role !== 'user') return;
@@ -279,10 +330,17 @@ export default function ChatView() {
       setInput(newIndex >= 0 ? sentHistory[newIndex] : '');
       return;
     }
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      if (editingId) handleSaveEdit();
-      else handleSend();
+    if (e.key === 'Enter') {
+      // Ctrl+Enter 模式：Enter 换行，Ctrl+Enter 发送
+      // Enter 模式：Enter 发送，Shift+Enter 换行
+      const shouldSend = sendMode === 'ctrl-enter'
+        ? (e.ctrlKey || e.metaKey)
+        : !e.shiftKey;
+      if (shouldSend) {
+        e.preventDefault();
+        if (editingId) handleSaveEdit();
+        else handleSend();
+      }
     }
   };
 
@@ -319,6 +377,24 @@ export default function ChatView() {
     a.download = `${currentConversation.title.slice(0, 30)}-${Date.now()}.md`;
     a.click();
     URL.revokeObjectURL(url);
+  }, [currentConversation, messagePath]);
+
+  // 分享链接
+  const handleShare = useCallback(() => {
+    if (!currentConversation || messagePath.length === 0) return;
+    const data = {
+      title: currentConversation.title,
+      messages: messagePath.map(m => ({
+        role: m.role,
+        content: typeof m.content === 'string' ? m.content : '',
+        time: m.createdAt,
+      })),
+    };
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+    const url = `${window.location.origin}?share=${encoded}`;
+    navigator.clipboard.writeText(url).then(() => {
+      alert('分享链接已复制到剪贴板');
+    });
   }, [currentConversation, messagePath]);
 
   const suggestions = [
@@ -380,9 +456,23 @@ export default function ChatView() {
         {/* 模型选择器 + 导出 */}
         <div className="flex items-center gap-2">
           {messagePath.length > 0 && (
-            <button onClick={handleExport} className="flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" title="导出为 Markdown" aria-label="导出为 Markdown">
-              <Download className="w-3.5 h-3.5" />
-            </button>
+            <>
+              <button onClick={handleExport} className="flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" title="导出为 Markdown" aria-label="导出为 Markdown">
+                <Download className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={handleShare} className="flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" title="复制分享链接" aria-label="复制分享链接">
+                <Share2 className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => setVoiceChatOpen(true)} className="flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-aurora-violet/30 text-aurora-violet dark:text-aurora-violet-dark hover:bg-aurora-violet/10 transition-colors" title="语音对话" aria-label="语音对话">
+                <Volume2 className="w-3.5 h-3.5" />
+              </button>
+            </>
+          )}
+          {/* 上下文估算 */}
+          {messagePath.length > 0 && (
+            <span className="text-[10px] text-aurora-text-secondary/50 dark:text-aurora-text-dark-secondary/50 select-none whitespace-nowrap" title={`${messagePath.length} 条消息，约 ${Math.round(messagePath.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0) / 4)} tokens`}>
+              {messagePath.length}条 · ~{Math.round(messagePath.reduce((sum, m) => sum + (typeof m.content === 'string' ? m.content.length : 0), 0) / 4)}tk
+            </span>
           )}
           <div className="relative" ref={modelMenuRef}>
           <button onClick={() => setModelMenuOpen((v) => !v)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" aria-label="选择模型" aria-expanded={modelMenuOpen}>
@@ -475,8 +565,15 @@ export default function ChatView() {
               const hasSiblings = siblingTotal > 1;
               const textContent = typeof msg.content === 'string' ? msg.content : '';
 
+              const isPinnedMsg = pinnedMessages[currentConversationId || '']?.includes(msg.id);
+
               return (
-                <div key={msg.id} id={`msg-${msg.id}`} className={`group flex gap-3 animate-fade-in ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+                <div key={msg.id} id={`msg-${msg.id}`} className={`group relative flex gap-3 animate-fade-in ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+                  {isPinnedMsg && (
+                    <div className={`absolute -top-2 ${isUser ? 'right-10' : 'left-10'} z-10`}>
+                      <Pin className="w-3 h-3 text-aurora-violet dark:text-aurora-violet-dark fill-current" />
+                    </div>
+                  )}
                   <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-aurora-accent dark:bg-aurora-accent-dark' : 'bg-aurora-muted-light dark:bg-aurora-muted-dark'}`}>
                     {isUser ? <User className="w-4 h-4 text-white dark:text-black" /> : <Bot className="w-4 h-4 text-aurora-text-secondary dark:text-aurora-text-dark-secondary" />}
                   </div>
@@ -508,7 +605,10 @@ export default function ChatView() {
                     </div>
                     {/* 消息操作栏 */}
                     {editingId !== msg.id && (
-                      <div className={`flex items-center gap-1 mt-1.5 ${isUser ? 'flex-row-reverse' : ''} ${expandedActionId === msg.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'} transition-opacity`}>
+                      <div className={`flex items-center gap-1.5 mt-1.5 ${isUser ? 'flex-row-reverse' : ''} ${expandedActionId === msg.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'} transition-opacity`}>
+                        <span className="text-[10px] text-aurora-text-secondary/60 dark:text-aurora-text-dark-secondary/60 whitespace-nowrap select-none">
+                          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                        </span>
                         {isAssistant && (
                           <>
                             <button onClick={() => handleCopy(msg.id, textContent)} className="p-1.5 rounded-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark" title="复制" aria-label="复制">
@@ -526,6 +626,12 @@ export default function ChatView() {
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             )}
+                            <button onClick={() => currentConversationId && togglePinMessage(currentConversationId, msg.id)}
+                              className={`p-1.5 rounded-md hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark ${pinnedMessages[currentConversationId || '']?.includes(msg.id) ? 'text-aurora-violet dark:text-aurora-violet-dark' : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary'}`}
+                              title={pinnedMessages[currentConversationId || '']?.includes(msg.id) ? '取消置顶' : '置顶消息'}
+                              aria-label={pinnedMessages[currentConversationId || '']?.includes(msg.id) ? '取消置顶' : '置顶消息'}>
+                              <Pin className="w-3.5 h-3.5" />
+                            </button>
                           </>
                         )}
                         {isUser && (
@@ -609,6 +715,35 @@ export default function ChatView() {
               placeholder={dragOver ? "拖放文件到此处..." : "发送消息...（拖拽或粘贴文件）"}
               className="flex-1 bg-transparent px-2 py-2.5 max-h-[200px] focus:outline-none resize-none text-aurora-text-primary dark:text-aurora-text-dark-primary placeholder:text-aurora-text-secondary dark:placeholder:text-aurora-text-dark-secondary"
               rows={1} disabled={!!streamingMessageId} style={{ minHeight: '24px', height: 'auto' }} />
+            {/* 推理模式选择器 */}
+            <select
+              value={reasoningEffort}
+              onChange={(e) => setReasoningEffort(e.target.value as any)}
+              className="px-1.5 py-1 text-[11px] bg-transparent border border-aurora-border-light dark:border-aurora-border-dark rounded-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary focus:outline-none cursor-pointer"
+              title="推理模式"
+              aria-label="推理模式"
+            >
+              <option value="low">低</option>
+              <option value="medium">中</option>
+              <option value="high">高</option>
+              <option value="xhigh">超高</option>
+              <option value="max">极限</option>
+            </select>
+            {/* 语音输入按钮 */}
+            {speechSupported && (
+              <button
+                onClick={toggleListening}
+                className={`p-2 rounded-lg transition-all ${
+                  isListening
+                    ? 'bg-red-500 text-white animate-pulse'
+                    : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark'
+                }`}
+                title={isListening ? '停止录音' : '语音输入'}
+                aria-label={isListening ? '停止录音' : '语音输入'}
+              >
+                {isListening ? <MicOff className="w-5 h-5" /> : <Mic className="w-5 h-5" />}
+              </button>
+            )}
             {streamingMessageId ? (
               <button onClick={handleStop} className="p-2 rounded-lg bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black hover:bg-aurora-accent-hover dark:hover:bg-aurora-accent-dark-hover active:scale-95 transition-all" aria-label="停止生成">
                 <Square className="w-5 h-5 fill-current" />
@@ -633,6 +768,9 @@ export default function ChatView() {
           <img src={lightboxSrc} alt="预览" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
         </div>
       )}
+
+      {/* 语音对话模式 */}
+      {voiceChatOpen && <VoiceChat onClose={() => setVoiceChatOpen(false)} />}
     </div>
   );
 }

@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { generateImage, editImage } from '../api/images';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useImagesStore, type ImageHistoryItem } from '../stores/imagesStore';
+import { useChatStore } from '../stores/chatStore';
 import {
-  Wand2, Upload, Sparkles, History, Download, Trash2, X, Check
+  Wand2, Upload, Sparkles, History, Download, Trash2, X, Check, Send
 } from 'lucide-react';
 
 export default function ImagesView() {
@@ -161,6 +162,30 @@ export default function ImagesView() {
           >
             {copiedIndex === idx ? <Check className="w-3.5 h-3.5" /> : <X className="w-3.5 h-3.5" />}
             <span>{copiedIndex === idx ? '已复制' : (result.url ? '复制链接' : '复制')}</span>
+          </button>
+          <button
+            onClick={() => {
+              const imageUrl = result.url || `data:image/png;base64,${result.b64_json}`;
+              const store = useChatStore.getState();
+              let convId = store.currentConversationId;
+              if (!convId) convId = store.createConversation();
+              const conv = store.conversations.find(c => c.id === convId);
+              const leafId = conv?.currentLeafId || null;
+              const userMsgId = store.addMessage(convId, leafId, {
+                role: 'user',
+                content: [{ type: 'input_image', image_url: imageUrl }],
+              });
+              store.addMessage(convId, userMsgId, {
+                role: 'assistant',
+                content: '图片已发送到对话。',
+              });
+              alert('图片已发送到聊天');
+            }}
+            className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border border-aurora-border-light dark:border-aurora-border-dark hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors"
+            title="发送到聊天"
+          >
+            <Send className="w-3.5 h-3.5" />
+            <span>发到聊天</span>
           </button>
         </div>
       </div>

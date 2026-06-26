@@ -39,6 +39,7 @@ interface ChatState {
   abortController: AbortController | null;
   pinnedIds: string[];
   archivedIds: string[];
+  pinnedMessages: Record<string, string[]>; // conversationId -> pinned messageIds
 
   createConversation: () => string;
   setCurrentConversation: (id: string | null) => void;
@@ -60,6 +61,7 @@ interface ChatState {
   getSiblingInfo: (messageId: string) => { index: number; total: number };
   switchSibling: (messageId: string, direction: -1 | 1) => void;
   generateTitle: (conversationId: string) => Promise<void>;
+  togglePinMessage: (conversationId: string, messageId: string) => void;
 }
 
 function generateId() {
@@ -253,6 +255,7 @@ export const useChatStore = create<ChatState>()(
       abortController: null,
       pinnedIds: [],
       archivedIds: [],
+      pinnedMessages: {},
 
       createConversation: () => {
         const id = generateId();
@@ -620,6 +623,20 @@ export const useChatStore = create<ChatState>()(
         const title = extractTitleFromContent(rootMsg.content);
         get().renameConversation(conversationId, title);
       },
+
+      togglePinMessage: (conversationId, messageId) => {
+        set((state) => {
+          const pinned = { ...state.pinnedMessages };
+          const convPinned = new Set(pinned[conversationId] || []);
+          if (convPinned.has(messageId)) {
+            convPinned.delete(messageId);
+          } else {
+            convPinned.add(messageId);
+          }
+          pinned[conversationId] = Array.from(convPinned);
+          return { pinnedMessages: pinned };
+        });
+      },
     }),
     {
       name: 'aurora-chat-storage',
@@ -631,6 +648,7 @@ export const useChatStore = create<ChatState>()(
         currentConversationId: state.currentConversationId,
         pinnedIds: state.pinnedIds,
         archivedIds: state.archivedIds,
+        pinnedMessages: state.pinnedMessages,
       }),
       // P0-4: 数据损坏检测与自动修复
       onRehydrateStorage: () => (state) => {

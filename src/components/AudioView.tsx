@@ -1,6 +1,6 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { textToSpeech, transcribeAudio, translateAudio } from '../api/audio';
-import { Volume2, Mic, Languages, Download, Copy, Check } from 'lucide-react';
+import { Volume2, Mic, Languages, Download, Copy, Check, StopCircle } from 'lucide-react';
 
 type AudioMode = 'tts' | 'stt' | 'translate';
 
@@ -8,6 +8,7 @@ export default function AudioView() {
   const [mode, setMode] = useState<AudioMode>('tts');
   const [text, setText] = useState('');
   const [voice, setVoice] = useState('alloy');
+  const [ttsFormat, setTtsFormat] = useState<'mp3' | 'opus' | 'aac' | 'flac' | 'wav' | 'pcm' | 'ogg'>('mp3');
   const [audioFile, setAudioFile] = useState<File | null>(null);
   const [language, setLanguage] = useState('zh');
   const [loading, setLoading] = useState(false);
@@ -17,7 +18,68 @@ export default function AudioView() {
   const [copied, setCopied] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // 录音状态
+  const [isRecording, setIsRecording] = useState(false);
+  const [recordTime, setRecordTime] = useState(0);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const chunksRef = useRef<Blob[]>([]);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [recordedUrl, setRecordedUrl] = useState<string | null>(null);
+
   const voices = ['alloy', 'ash', 'coral', 'echo', 'fable', 'onyx', 'nova', 'sage', 'shimmer'];
+
+  // 录音计时器
+  useEffect(() => {
+    if (isRecording) {
+      timerRef.current = setInterval(() => setRecordTime(t => t + 1), 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [isRecording]);
+
+  const formatTime = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  // 开始录音
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream);
+      mediaRecorderRef.current = mediaRecorder;
+      chunksRef.current = [];
+
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) chunksRef.current.push(e.data);
+      };
+
+      mediaRecorder.onstop = () => {
+        const blob = new Blob(chunksRef.current, { type: 'audio/webm' });
+        const file = new File([blob], `recording-${Date.now()}.webm`, { type: 'audio/webm' });
+        setAudioFile(file);
+        setRecordedUrl(URL.createObjectURL(blob));
+        stream.getTracks().forEach(t => t.stop());
+      };
+
+      mediaRecorder.start();
+      setIsRecording(true);
+      setRecordTime(0);
+      setRecordedUrl(null);
+      setAudioFile(null);
+      setError('');
+    } catch {
+      setError('无法访问麦克风，请检查浏览器权限');
+    }
+  };
+
+  // 停止录音
+  const stopRecording = () => {
+    mediaRecorderRef.current?.stop();
+    setIsRecording(false);
+  };
 
   const handleTTS = async () => {
     if (!text.trim()) {
@@ -28,7 +90,7 @@ export default function AudioView() {
     setError('');
     setAudioUrl('');
     try {
-      const blob = await textToSpeech({ model: 'tts-1', input: text, voice, response_format: 'mp3' });
+      const blob = await textToSpeech({ model: 'tts-1', input: text, voice, response_format: ttsFormat });
       setAudioUrl(URL.createObjectURL(blob));
     } catch (err) {
       setError(err instanceof Error ? err.message : '转换失败');
@@ -39,7 +101,7 @@ export default function AudioView() {
 
   const handleSTT = async () => {
     if (!audioFile) {
-      setError('请选择音频文件');
+      setError('请上传音频文件或录制音频');
       return;
     }
     setLoading(true);
@@ -57,7 +119,7 @@ export default function AudioView() {
 
   const handleTranslate = async () => {
     if (!audioFile) {
-      setError('请选择音频文件');
+      setError('请上传音频文件或录制音频');
       return;
     }
     setLoading(true);
@@ -75,7 +137,10 @@ export default function AudioView() {
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) setAudioFile(file);
+    if (file) {
+      setAudioFile(file);
+      setRecordedUrl(null);
+    }
   };
 
   const handleCopy = () => {
@@ -102,7 +167,7 @@ export default function AudioView() {
               return (
                 <button
                   key={item.id}
-                  onClick={() => setMode(item.id)}
+                  onClick={() => { setMode(item.id); setError(''); }}
                   className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                     mode === item.id
                       ? 'bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black'
@@ -125,7 +190,7 @@ export default function AudioView() {
                     value={text}
                     onChange={(e) => setText(e.target.value)}
                     placeholder="输入要转换为语音的文本..."
-                    className="w-full px-4 py-3 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-xl focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors resize-none text-aurora-text-primary dark:text-aurora-text-dark-primary placeholder:text-aurora-text-secondary dark:placeholder:text-aurora-text-dark-secondary"
+                    className="w-full px-4 py-3 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-xl focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors resize-none text-aurora-text-primary dark:text-aurora-text-dark-primary placeholder:text-aurora-text-secondary dark:placeholder:text-aurora-text-dark-secondary"
                     rows={5}
                   />
                 </div>
@@ -134,9 +199,25 @@ export default function AudioView() {
                   <select
                     value={voice}
                     onChange={(e) => setVoice(e.target.value)}
-                    className="w-full px-4 py-2.5 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
+                    className="w-full px-4 py-2.5 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
                   >
                     {voices.map((v) => <option key={v} value={v}>{v}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-2">输出格式</label>
+                  <select
+                    value={ttsFormat}
+                    onChange={(e) => setTtsFormat(e.target.value as any)}
+                    className="w-full px-4 py-2.5 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
+                  >
+                    <option value="mp3">MP3</option>
+                    <option value="opus">Opus</option>
+                    <option value="aac">AAC</option>
+                    <option value="flac">FLAC</option>
+                    <option value="wav">WAV</option>
+                    <option value="pcm">PCM</option>
+                    <option value="ogg">OGG</option>
                   </select>
                 </div>
               </>
@@ -144,16 +225,62 @@ export default function AudioView() {
 
             {(mode === 'stt' || mode === 'translate') && (
               <>
+                {/* 浏览器录音 */}
                 <div>
-                  <label className="block text-sm font-medium text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-2">音频文件</label>
+                  <label className="block text-sm font-medium text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-2">录音</label>
+                  <div className="flex items-center gap-4 p-4 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-xl">
+                    {!isRecording ? (
+                      <button
+                        onClick={startRecording}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-red-500 text-white rounded-lg hover:bg-red-600 transition-colors font-medium text-sm"
+                      >
+                        <Mic className="w-4 h-4" />
+                        开始录音
+                      </button>
+                    ) : (
+                      <button
+                        onClick={stopRecording}
+                        className="flex items-center gap-2 px-4 py-2.5 bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black rounded-lg hover:bg-aurora-accent-hover dark:hover:bg-aurora-accent-dark-hover transition-colors font-medium text-sm animate-pulse"
+                      >
+                        <StopCircle className="w-4 h-4" />
+                        停止录音
+                      </button>
+                    )}
+                    {isRecording && (
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                        <span className="text-sm font-mono text-aurora-text-primary dark:text-aurora-text-dark-primary">{formatTime(recordTime)}</span>
+                        <span className="text-xs text-aurora-text-secondary dark:text-aurora-text-dark-secondary">录音中...</span>
+                      </div>
+                    )}
+                    {!isRecording && audioFile && recordedUrl && (
+                      <div className="flex-1 flex items-center gap-3">
+                        <audio controls src={recordedUrl} className="flex-1 h-8" />
+                        <span className="text-xs text-aurora-text-secondary dark:text-aurora-text-dark-secondary whitespace-nowrap">
+                          录制完成 ({formatTime(recordTime)})
+                        </span>
+                      </div>
+                    )}
+                    {!isRecording && !audioFile && (
+                      <span className="text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary">
+                        点击录音，或上传文件 ↓
+                      </span>
+                    )}
+                  </div>
+                </div>
+
+                {/* 文件上传 */}
+                <div>
+                  <label className="block text-sm font-medium text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-2">或上传音频文件</label>
                   <input
                     type="file"
                     ref={fileInputRef}
                     accept="audio/*"
                     onChange={handleFileChange}
-                    className="w-full px-4 py-3 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-xl focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-aurora-accent file:text-white dark:file:bg-aurora-accent-dark dark:file:text-black hover:file:bg-aurora-accent-hover dark:hover:file:bg-aurora-accent-dark-hover"
+                    className="w-full px-4 py-3 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-xl focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-aurora-accent file:text-white dark:file:bg-aurora-accent-dark dark:file:text-black hover:file:bg-aurora-accent-hover dark:hover:file:bg-aurora-accent-dark-hover"
                   />
                 </div>
+
                 {mode === 'stt' && (
                   <div>
                     <label className="block text-sm font-medium text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-2">语言</label>
@@ -162,7 +289,7 @@ export default function AudioView() {
                       value={language}
                       onChange={(e) => setLanguage(e.target.value)}
                       placeholder="zh"
-                      className="w-full px-4 py-2.5 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
+                      className="w-full px-4 py-2.5 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
                     />
                     <p className="text-xs text-aurora-text-secondary dark:text-aurora-text-dark-secondary mt-1.5">ISO 语言代码，如 zh、en</p>
                   </div>
@@ -171,7 +298,7 @@ export default function AudioView() {
             )}
 
             {error && (
-              <div className="p-3 bg-aurora-error/10 border border-aurora-error/20 rounded-lg text-aurora-error dark:text-aurora-error-dark text-sm">
+              <div className="p-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-lg text-red-700 dark:text-red-300 text-sm">
                 {error}
               </div>
             )}
@@ -201,7 +328,7 @@ export default function AudioView() {
               <div className="p-4 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-xl space-y-3">
                 <audio controls src={audioUrl} className="w-full" />
                 <button
-                  onClick={() => { const a = document.createElement('a'); a.href = audioUrl; a.download = 'speech.mp3'; a.click(); }}
+                  onClick={() => { const a = document.createElement('a'); a.href = audioUrl; a.download = `speech.${ttsFormat}`; a.click(); }}
                   className="w-full flex items-center justify-center gap-2 px-4 py-2.5 border border-aurora-border-light dark:border-aurora-border-dark rounded-lg hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors text-sm font-medium"
                 >
                   <Download className="w-4 h-4" />

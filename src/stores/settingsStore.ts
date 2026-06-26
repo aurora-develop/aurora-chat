@@ -8,12 +8,16 @@ interface SettingsState {
   useCustomApi: boolean;
   customApiUrl: string;
   customApiKey: string;
+  reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh' | 'max';
+  sendMode: 'enter' | 'ctrl-enter';
   setToken: (token: string) => void;
   setModel: (model: string) => void;
   setStreamEnabled: (enabled: boolean) => void;
   setUseCustomApi: (use: boolean) => void;
   setCustomApiUrl: (url: string) => void;
   setCustomApiKey: (key: string) => void;
+  setReasoningEffort: (effort: 'low' | 'medium' | 'high' | 'xhigh' | 'max') => void;
+  setSendMode: (mode: 'enter' | 'ctrl-enter') => void;
 }
 
 export const useSettingsStore = create<SettingsState>()(
@@ -25,6 +29,8 @@ export const useSettingsStore = create<SettingsState>()(
       useCustomApi: false,
       customApiUrl: '',
       customApiKey: '',
+      reasoningEffort: 'medium',
+      sendMode: 'enter',
       setToken: (token) => {
         localStorage.setItem('aurora_token', token);
         set({ token });
@@ -34,6 +40,8 @@ export const useSettingsStore = create<SettingsState>()(
       setUseCustomApi: (use) => set({ useCustomApi: use }),
       setCustomApiUrl: (url) => set({ customApiUrl: url }),
       setCustomApiKey: (key) => set({ customApiKey: key }),
+      setReasoningEffort: (effort) => set({ reasoningEffort: effort }),
+      setSendMode: (mode) => set({ sendMode: mode }),
     }),
     {
       name: 'aurora-settings',
