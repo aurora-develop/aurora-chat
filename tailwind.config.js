@@ -11,11 +11,11 @@ export default {
         aurora: {
           sidebar: {
             light: '#f7f7f8',
-            dark: '#000000',
+            dark: '#000000',       // 保持纯黑，比主区域更深形成分层
           },
           bg: {
             light: '#ffffff',
-            dark: '#000000',
+            dark: '#0a0a0b',       // P2-1: 从 #000000 改为极深灰，与 sidebar 形成分层
           },
           surface: {
             light: '#f7f7f8',
@@ -37,6 +37,11 @@ export default {
             dark: '#ffffff',
             'dark-hover': '#e5e5e5',
           },
+          // P2-1: Aurora 品牌紫蓝色，用于渐变和强调
+          violet: {
+            DEFAULT: '#818cf8',
+            dark: '#818cf8',
+          },
           muted: {
             light: '#f5f5f5',
             dark: '#2a2b32',
@@ -55,12 +60,19 @@ export default {
         '3xl': '18px',
       },
       animation: {
-        'fade-in': 'fadeIn 0.1s ease-out',
+        // P2-1: 入场动画改为 translateY + opacity，0.2s
+        'fade-in': 'fadeInUp 0.2s ease-out',
+        // P2-1: streaming 光标闪烁动画
+        'typing-cursor': 'typingBlink 1s step-end infinite',
       },
       keyframes: {
-        fadeIn: {
-          '0%': { opacity: '0' },
-          '100%': { opacity: '1' },
+        fadeInUp: {
+          '0%': { opacity: '0', transform: 'translateY(6px)' },
+          '100%': { opacity: '1', transform: 'translateY(0)' },
+        },
+        typingBlink: {
+          '0%, 100%': { opacity: '1' },
+          '50%': { opacity: '0' },
         },
       },
     },

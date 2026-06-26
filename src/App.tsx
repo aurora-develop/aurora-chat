@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useChatStore } from './stores/chatStore';
 import { useThemeStore } from './stores/themeStore';
+import CommandPalette from './components/CommandPalette';
 
 const ChatView = lazy(() => import('./components/ChatView'));
 const ImagesView = lazy(() => import('./components/ImagesView'));
@@ -153,7 +154,8 @@ function App() {
 
     return (
       <div key={title} className="mb-2">
-        <div className="px-3 py-1.5 text-xs font-medium text-aurora-text-secondary dark:text-aurora-text-dark-secondary">
+        <div className="flex items-center gap-2 px-3 py-2 text-xs font-medium text-aurora-text-secondary dark:text-aurora-text-dark-secondary">
+          <div className="w-0.5 h-3 rounded-full bg-aurora-accent dark:bg-aurora-accent-dark" />
           {title}
         </div>
         <div className="space-y-0.5">
@@ -172,8 +174,8 @@ function App() {
         key={conv.id}
         className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
           active
-            ? 'bg-aurora-muted-light dark:bg-aurora-muted-dark'
-            : 'hover:bg-aurora-muted-light/50 dark:hover:bg-aurora-muted-dark/50'
+            ? 'bg-aurora-muted-light dark:bg-aurora-muted-dark border-l-2 border-aurora-accent dark:border-aurora-accent-dark'
+            : 'border-l-2 border-transparent hover:bg-aurora-muted-light/50 dark:hover:bg-aurora-muted-dark/50'
         }`}
         onClick={() => {
           setCurrentConversation(conv.id);
@@ -187,7 +189,7 @@ function App() {
             type="text"
             value={renameValue}
             onChange={(e) => setRenameValue(e.target.value)}
-            onKeyPress={(e) => e.key === 'Enter' && confirmRename()}
+            onKeyDown={(e) => e.key === 'Enter' && confirmRename()}
             onBlur={confirmRename}
             autoFocus
             className="flex-1 min-w-0 bg-transparent text-sm focus:outline-none"
@@ -200,7 +202,7 @@ function App() {
         {renamingId !== conv.id && (
           <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
             {isPinned(conv.id) && (
-              <Pin className="w-3 h-3 text-aurora-text-secondary dark:text-aurora-text-dark-secondary fill-current" />
+              <Pin className="w-3 h-3 text-aurora-accent dark:text-aurora-accent-dark fill-current" />
             )}
             <div className="relative">
               <button
@@ -256,12 +258,76 @@ function App() {
   };
 
   const [showArchived, setShowArchived] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+
+  // P0-3: 全局键盘快捷键
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+K: 命令面板
+      if (e.ctrlKey && e.key === 'k') {
+        e.preventDefault();
+        setCommandPaletteOpen((v) => !v);
+        return;
+      }
+      // Ctrl+N: 新建对话
+      if (e.ctrlKey && e.key === 'n') {
+        e.preventDefault();
+        handleNewChat();
+        return;
+      }
+      // Escape: 关闭弹窗
+      if (e.key === 'Escape') {
+        if (showClearConfirm) { setShowClearConfirm(false); return; }
+        if (menuOpenId) { setMenuOpenId(null); return; }
+        if (renamingId) { setRenamingId(null); return; }
+        return;
+      }
+      // Ctrl+Shift+O: 切换侧边栏
+      if (e.ctrlKey && e.shiftKey && e.key === 'O') {
+        e.preventDefault();
+        if (isMobile) setMobileOpen((v) => !v);
+        else setCollapsed((v) => !v);
+        return;
+      }
+      // Ctrl+1/2/3/4: 切换标签页
+      if (e.ctrlKey && ['1', '2', '3', '4'].includes(e.key)) {
+        e.preventDefault();
+        const tabMap: Tab[] = ['chat', 'images', 'audio', 'settings'];
+        handleTabClick(tabMap[parseInt(e.key) - 1]);
+        return;
+      }
+      // Alt+Up/Down: 切换会话
+      if (e.altKey && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
+        e.preventDefault();
+        const visibleConvs = conversations
+          .filter((c) => !isArchived(c.id) && !isPinned(c.id))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        const pinnedConvs = conversations
+          .filter((c) => isPinned(c.id) && !isArchived(c.id))
+          .sort((a, b) => b.updatedAt - a.updatedAt);
+        const allVisible = [...pinnedConvs, ...visibleConvs];
+        if (allVisible.length === 0) return;
+        const currentIdx = allVisible.findIndex((c) => c.id === currentConversationId);
+        const nextIdx = e.key === 'ArrowDown'
+          ? Math.min(currentIdx + 1, allVisible.length - 1)
+          : Math.max(currentIdx - 1, 0);
+        if (nextIdx >= 0 && nextIdx < allVisible.length) {
+          setCurrentConversation(allVisible[nextIdx].id);
+          setActiveTab('chat');
+        }
+        return;
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [showClearConfirm, menuOpenId, renamingId, conversations, currentConversationId, isMobile]);
 
   const conversationList = (
     <div className="flex flex-col h-full">
       <button
         onClick={handleNewChat}
         className="flex items-center gap-3 px-4 py-3 mx-3 mt-3 mb-2 border border-aurora-border-light dark:border-aurora-border-dark rounded-lg hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors"
+        title="新对话 (Ctrl+N)"
       >
         <Plus className="w-5 h-5" />
         <span className="font-medium">新对话</span>
@@ -445,11 +511,11 @@ function App() {
       {/* 移动端侧边栏遮罩 */}
       {isMobile && mobileOpen && (
         <>
-          <aside className="absolute inset-y-0 left-0 z-50 w-72 flex flex-col bg-aurora-sidebar-light dark:bg-aurora-sidebar-dark border-r border-aurora-border-light dark:border-aurora-border-dark">
+          <aside className="absolute inset-y-0 left-0 z-50 w-72 flex flex-col bg-aurora-sidebar-light dark:bg-aurora-sidebar-dark border-r border-aurora-border-light dark:border-aurora-border-dark transform transition-transform duration-300 ease-in-out translate-x-0">
             {sidebarContent}
           </aside>
           <div
-            className="absolute inset-0 z-40 bg-black/30"
+            className="absolute inset-0 z-40 bg-black/30 transition-opacity duration-300 opacity-100"
             onClick={() => setMobileOpen(false)}
           />
         </>
@@ -488,6 +554,13 @@ function App() {
           </Suspense>
         </div>
       </main>
+
+      {/* P2-5: Ctrl+K 命令面板 */}
+      <CommandPalette
+        open={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        onNavigate={(tab) => handleTabClick(tab as Tab)}
+      />
     </div>
   );
 }

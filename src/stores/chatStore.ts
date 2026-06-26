@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
+import { persist, createJSONStorage } from 'zustand/middleware';
 import type { Message } from '../types/api';
 
 export interface AddMessageInput {
@@ -64,6 +64,60 @@ interface ChatState {
 
 function generateId() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+}
+
+// P0-4: Debounced storage，减少流式期间 localStorage 写入频率
+let _debounceTimer: ReturnType<typeof setTimeout> | null = null;
+let _lastValue: string | null = null;
+let _storageWarningShown = false;
+
+const debouncedStorage = {
+  getItem: (name: string): string | null => {
+    return localStorage.getItem(name);
+  },
+  setItem: (name: string, value: string): void => {
+    _lastValue = value;
+    if (_debounceTimer) clearTimeout(_debounceTimer);
+    _debounceTimer = setTimeout(() => {
+      try {
+        localStorage.setItem(name, _lastValue!);
+      } catch (e) {
+        if (e instanceof DOMException && e.name === 'QuotaExceededError') {
+          // P1-6b: localStorage 容量预警
+          if (!_storageWarningShown) {
+            _storageWarningShown = true;
+            console.warn('⚠️ localStorage 已满，部分数据可能无法保存。请在设置中清理旧会话。');
+            // 尝试通知用户（如果在浏览器环境中）
+            if (typeof window !== 'undefined') {
+              window.dispatchEvent(new CustomEvent('aurora-storage-warning', {
+                detail: { message: '存储空间已满，请清理旧会话' }
+              }));
+            }
+          }
+        }
+      }
+    }, 800);
+  },
+  removeItem: (name: string): void => {
+    if (_debounceTimer) clearTimeout(_debounceTimer);
+    localStorage.removeItem(name);
+  },
+};
+
+/** 强制将待写入的数据持久化（stream 结束后调用） */
+export function flushStorage(): void {
+  if (_debounceTimer) {
+    clearTimeout(_debounceTimer);
+    _debounceTimer = null;
+  }
+  try {
+    const data = localStorage.getItem('aurora-chat-storage');
+    if (_lastValue && _lastValue !== data) {
+      localStorage.setItem('aurora-chat-storage', _lastValue);
+    }
+  } catch (e) {
+    console.warn('flushStorage 失败:', e);
+  }
 }
 
 function extractTitleFromContent(content: string | Message['content']): string {
@@ -475,6 +529,7 @@ export const useChatStore = create<ChatState>()(
     {
       name: 'aurora-chat-storage',
       version: 1,
+      storage: createJSONStorage(() => debouncedStorage),
       partialize: (state) => ({
         conversations: state.conversations,
         messages: state.messages,
