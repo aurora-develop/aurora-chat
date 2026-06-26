@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useSettingsStore } from '../stores/settingsStore';
 import { refreshToken, sessionToToken } from '../api/auth';
 import { getModels } from '../api/models';
-import { Key, RefreshCw, Cookie, Trash2, CheckCircle, XCircle, Cpu, Eye, EyeOff, Globe, ToggleLeft, ToggleRight } from 'lucide-react';
+import { Key, RefreshCw, Cookie, Trash2, CheckCircle, XCircle, Cpu, Eye, EyeOff, Globe, ToggleLeft, ToggleRight, Download, Upload } from 'lucide-react';
+import { exportBackup, importBackup } from '../utils/backup';
 
 export default function SettingsView() {
   const {
@@ -140,7 +141,7 @@ export default function SettingsView() {
                   value={accessTokenInput}
                   onChange={(e) => setAccessTokenInput(e.target.value)}
                   placeholder="eyJhbGciOiJSUzI1NiI..."
-                  className="w-full px-4 py-2.5 pr-10 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary text-sm"
+                  className="w-full px-4 py-2.5 pr-10 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary text-sm"
                 />
                 <button
                   onClick={() => setShowToken(!showToken)}
@@ -189,7 +190,7 @@ export default function SettingsView() {
               value={refreshTokenInput}
               onChange={(e) => setRefreshTokenInput(e.target.value)}
               placeholder="输入 Refresh Token"
-              className="w-full px-4 py-3 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
+              className="w-full px-4 py-3 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
             />
             <button
               onClick={handleRefreshToken}
@@ -226,7 +227,7 @@ export default function SettingsView() {
               value={sessionTokenInput}
               onChange={(e) => setSessionTokenInput(e.target.value)}
               placeholder="输入 Session Token"
-              className="w-full px-4 py-3 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
+              className="w-full px-4 py-3 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
             />
             <button
               onClick={handleSessionToken}
@@ -288,7 +289,7 @@ export default function SettingsView() {
                   value={customApiUrl}
                   onChange={(e) => setCustomApiUrl(e.target.value)}
                   placeholder="https://api.openai.com"
-                  className="w-full px-4 py-2.5 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary text-sm"
+                  className="w-full px-4 py-2.5 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary text-sm"
                 />
                 <p className="text-xs text-aurora-text-secondary dark:text-aurora-text-dark-secondary mt-1">
                   只需提供域名，程序会自动追加 /v1/chat/completions 等路径
@@ -304,7 +305,7 @@ export default function SettingsView() {
                     value={customApiKey}
                     onChange={(e) => setCustomApiKey(e.target.value)}
                     placeholder="sk-..."
-                    className="w-full px-4 py-2.5 pr-10 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary text-sm"
+                    className="w-full px-4 py-2.5 pr-10 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary text-sm"
                   />
                   <button
                     onClick={() => setShowToken(!showToken)}
@@ -346,7 +347,7 @@ export default function SettingsView() {
             <select
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              className="w-full px-4 py-3 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:border-aurora-text-primary dark:focus:border-aurora-text-dark-primary transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
+              className="w-full px-4 py-3 bg-aurora-bg-light dark:bg-aurora-bg-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg focus:outline-none focus:ring-2 focus:ring-aurora-accent/20 dark:focus:ring-aurora-accent-dark/20 focus:border-aurora-accent dark:focus:border-aurora-accent-dark transition-colors text-aurora-text-primary dark:text-aurora-text-dark-primary"
               disabled={!token && !(useCustomApi && customApiUrl)}
             >
               <option value="auto">自动选择</option>
@@ -365,7 +366,55 @@ export default function SettingsView() {
             )}
           </div>
         </div>
+
+        {/* P1-10: 数据管理 */}
+        <DataManagementCard />
       </div>
+    </div>
+  );
+}
+
+function DataManagementCard() {
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importMsg, setImportMsg] = useState('');
+
+  const handleImport = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const result = await importBackup(file);
+    setImportMsg(result.message);
+    if (!result.success) setTimeout(() => setImportMsg(''), 3000);
+  };
+
+  return (
+    <div className="bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-xl p-6">
+      <div className="flex items-center gap-2 mb-4">
+        <Download className="w-5 h-5 text-aurora-text-secondary dark:text-aurora-text-dark-secondary" />
+        <h3 className="text-base font-medium text-aurora-text-primary dark:text-aurora-text-dark-primary">数据管理</h3>
+      </div>
+      <p className="text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-4">
+        导出或导入所有聊天记录、设置和图片历史的完整备份
+      </p>
+      <div className="flex gap-3">
+        <button
+          onClick={exportBackup}
+          className="flex items-center gap-2 px-4 py-2.5 border border-aurora-border-light dark:border-aurora-border-dark rounded-lg hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors text-sm font-medium"
+        >
+          <Download className="w-4 h-4" />
+          导出备份
+        </button>
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          className="flex items-center gap-2 px-4 py-2.5 border border-dashed border-aurora-border-light dark:border-aurora-border-dark rounded-lg hover:border-aurora-accent dark:hover:border-aurora-accent-dark hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors text-sm font-medium"
+        >
+          <Upload className="w-4 h-4" />
+          导入备份
+        </button>
+        <input ref={fileInputRef} type="file" accept=".json" onChange={handleImport} className="hidden" />
+      </div>
+      {importMsg && (
+        <p className="mt-3 text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary animate-fade-in">{importMsg}</p>
+      )}
     </div>
   );
 }

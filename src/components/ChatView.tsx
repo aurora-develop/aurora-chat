@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, useCallback } from 'react';
 import {
   Send, Paperclip, Bot, User, Code, Lightbulb, Image as ImageIcon,
   Copy, Check, Square, Pencil, ChevronLeft, ChevronRight,
-  ThumbsUp, ThumbsDown, ChevronDown, Trash2, Globe, WifiOff, Download
+  ThumbsUp, ThumbsDown, ChevronDown, Trash2, Globe, WifiOff, Download, MoreHorizontal
 } from 'lucide-react';
 import { useChatStore, type MessageNode } from '../stores/chatStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -12,6 +12,7 @@ import { useChatCompletion } from '../hooks/useChatCompletion';
 import MemoizedMarkdown from './MemoizedMarkdown';
 import RegenerateWithModel from './RegenerateWithModel';
 import PromptTemplates from './PromptTemplates';
+import MessageSearch from './MessageSearch';
 
 export default function ChatView() {
   const {
@@ -39,6 +40,7 @@ export default function ChatView() {
   const [editContent, setEditContent] = useState('');
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [customModelInput, setCustomModelInput] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -48,9 +50,27 @@ export default function ChatView() {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const autoScrollRef = useRef(true);
   const [showScrollBtn, setShowScrollBtn] = useState(false);
+  const [expandedActionId, setExpandedActionId] = useState<string | null>(null);
+  const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
+  // P0-6: 发送历史 + 草稿保存
+  const [sentHistory] = useState<string[]>(() => {
+    try { return JSON.parse(localStorage.getItem('aurora-sent-history') || '[]'); } catch { return []; }
+  });
+  const historyIndexRef = useRef(-1);
+  const draftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentConversation = conversations.find((c) => c.id === currentConversationId);
   const messagePath = currentConversationId ? getMessagePath(currentConversationId) : [];
+
+  // P0-6: 会话切换时恢复草稿
+  useEffect(() => {
+    if (!currentConversationId) { setInput(''); return; }
+    try {
+      const drafts = JSON.parse(localStorage.getItem('aurora-drafts') || '{}');
+      setInput(drafts[currentConversationId] || '');
+    } catch { setInput(''); }
+    historyIndexRef.current = -1;
+  }, [currentConversationId]);
 
   // 网络状态监听
   useEffect(() => {
@@ -76,12 +96,23 @@ export default function ChatView() {
     const nearBottom = checkIfNearBottom();
     autoScrollRef.current = nearBottom;
     setShowScrollBtn(!nearBottom && streamingMessageId !== null);
+    setExpandedActionId(null); // P1-4: 滚动时收起操作栏
   }, [checkIfNearBottom, streamingMessageId]);
 
   const scrollToBottom = useCallback(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     autoScrollRef.current = true;
     setShowScrollBtn(false);
+  }, []);
+
+  // P1-6: 跳转到指定消息
+  const jumpToMessage = useCallback((messageId: string) => {
+    const el = document.getElementById(`msg-${messageId}`);
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      el.classList.add('ring-2', 'ring-aurora-violet/50', 'dark:ring-aurora-violet-dark/50', 'rounded-2xl');
+      setTimeout(() => el.classList.remove('ring-2', 'ring-aurora-violet/50', 'dark:ring-aurora-violet-dark/50', 'rounded-2xl'), 2000);
+    }
   }, []);
 
   useEffect(() => {
@@ -111,17 +142,15 @@ export default function ChatView() {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // 获取可用模型列表
+  // 获取可用模型列表（GET /v1/models，不带 Authorization，无 OPTIONS）
   useEffect(() => {
     if (!modelMenuOpen) return;
     getModels()
       .then((res) => {
         const ids = (res.data || []).map((m: { id: string }) => m.id).filter(Boolean);
-        setAvailableModels(ids.length ? ids : ['auto', 'gpt-4o', 'gpt-4o-mini', 'gpt-image-2']);
+        if (ids.length) setAvailableModels(ids);
       })
-      .catch(() => {
-        setAvailableModels(['auto', 'gpt-4o', 'gpt-4o-mini', 'gpt-image-2']);
-      });
+      .catch(() => { /* 静默失败，用户可手动输入 */ });
   }, [modelMenuOpen]);
 
   const sendMessage = async (content: string, parentId: string | null) => {
@@ -149,6 +178,21 @@ export default function ChatView() {
 
     setInput('');
     setUploadedFiles([]);
+    historyIndexRef.current = -1;
+
+    // P0-6: 保存发送历史 + 清除草稿
+    if (content.trim()) {
+      sentHistory.unshift(content.trim());
+      if (sentHistory.length > 50) sentHistory.length = 50;
+      try { localStorage.setItem('aurora-sent-history', JSON.stringify(sentHistory)); } catch { /* ignore */ }
+    }
+    if (currentConversationId) {
+      try {
+        const drafts = JSON.parse(localStorage.getItem('aurora-drafts') || '{}');
+        delete drafts[currentConversationId];
+        localStorage.setItem('aurora-drafts', JSON.stringify(drafts));
+      } catch { /* ignore */ }
+    }
     await generateResponse(userMessageId, conversationId);
   };
 
@@ -220,6 +264,21 @@ export default function ChatView() {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    // P0-6: 发送历史导航（空输入时 ↑/↓ 回溯）
+    if (e.key === 'ArrowUp' && !input && sentHistory.length > 0) {
+      e.preventDefault();
+      const newIndex = Math.min(historyIndexRef.current + 1, sentHistory.length - 1);
+      historyIndexRef.current = newIndex;
+      setInput(sentHistory[newIndex]);
+      return;
+    }
+    if (e.key === 'ArrowDown' && historyIndexRef.current >= 0) {
+      e.preventDefault();
+      const newIndex = historyIndexRef.current - 1;
+      historyIndexRef.current = newIndex;
+      setInput(newIndex >= 0 ? sentHistory[newIndex] : '');
+      return;
+    }
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (editingId) handleSaveEdit();
@@ -295,7 +354,8 @@ export default function ChatView() {
             const src = typeof part.image_url === 'string' ? part.image_url : part.image_url?.url;
             return (
               <div key={i} className="my-2">
-                <img src={src} alt="image" loading="lazy" decoding="async" className="max-w-sm rounded-xl border border-aurora-border-light dark:border-aurora-border-dark" />
+                <img src={src} alt="image" loading="lazy" decoding="async" onClick={() => src && setLightboxSrc(src)}
+                  className="max-w-xs rounded-xl border border-aurora-border-light dark:border-aurora-border-dark shadow-sm cursor-pointer hover:scale-[1.02] hover:shadow-md active:scale-[0.98] transition-all" />
               </div>
             );
           }
@@ -320,26 +380,58 @@ export default function ChatView() {
         {/* 模型选择器 + 导出 */}
         <div className="flex items-center gap-2">
           {messagePath.length > 0 && (
-            <button onClick={handleExport} className="flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" title="导出为 Markdown">
+            <button onClick={handleExport} className="flex items-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" title="导出为 Markdown" aria-label="导出为 Markdown">
               <Download className="w-3.5 h-3.5" />
             </button>
           )}
           <div className="relative" ref={modelMenuRef}>
-          <button onClick={() => setModelMenuOpen((v) => !v)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors">
+          <button onClick={() => setModelMenuOpen((v) => !v)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" aria-label="选择模型" aria-expanded={modelMenuOpen}>
             {currentConversation?.model && currentConversation.model !== 'auto' ? currentConversation.model : '自动模型'}
             <ChevronDown className="w-3 h-3" />
           </button>
           {modelMenuOpen && (
-            <div className="absolute right-0 top-full mt-1 w-56 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg shadow-xl py-1 z-30 max-h-80 overflow-y-auto">
-              {availableModels.length === 0 ? (
-                <div className="px-3 py-2 text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary">加载中...</div>
-              ) : availableModels.map((m) => (
-                <button key={m} onClick={() => { if (currentConversation) setConversationModel(currentConversation.id, m); setModelMenuOpen(false); }}
-                  className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark ${(currentConversation?.model) === m ? 'text-aurora-text-primary dark:text-aurora-text-dark-primary font-medium' : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary'}`}>
-                  <span className="flex-1 text-left truncate">{m}</span>
-                  {currentConversation?.model === m && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
-                </button>
-              ))}
+            <div className="absolute right-0 top-full mt-1 w-64 bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-lg shadow-xl py-1 z-30 max-h-96 overflow-y-auto">
+              {/* 自定义模型输入 */}
+              <div className="px-2 py-1.5 border-b border-aurora-border-light dark:border-aurora-border-dark">
+                <input
+                  type="text"
+                  value={customModelInput}
+                  onChange={(e) => setCustomModelInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && customModelInput.trim()) {
+                      if (currentConversation) setConversationModel(currentConversation.id, customModelInput.trim());
+                      setModelMenuOpen(false);
+                      setCustomModelInput('');
+                    }
+                  }}
+                  placeholder="输入自定义模型名..."
+                  className="w-full px-2 py-1.5 text-sm bg-transparent focus:outline-none text-aurora-text-primary dark:text-aurora-text-dark-primary placeholder:text-aurora-text-secondary dark:placeholder:text-aurora-text-dark-secondary"
+                  autoFocus
+                />
+              </div>
+              {/* 自动模型 */}
+              <button onClick={() => { if (currentConversation) setConversationModel(currentConversation.id, 'auto'); setModelMenuOpen(false); }}
+                className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark ${!currentConversation?.model || currentConversation.model === 'auto' ? 'text-aurora-text-primary dark:text-aurora-text-dark-primary font-medium' : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary'}`}>
+                <span className="flex-1 text-left">自动模型</span>
+                {(!currentConversation?.model || currentConversation.model === 'auto') && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+              </button>
+              {/* API 返回的模型列表 */}
+              {availableModels.length > 0 && (
+                <>
+                  <div className="px-3 py-1 text-[10px] text-aurora-text-secondary dark:text-aurora-text-dark-secondary border-t border-aurora-border-light dark:border-aurora-border-dark">
+                    API 模型列表
+                  </div>
+                  {availableModels
+                    .filter(m => !customModelInput || m.toLowerCase().includes(customModelInput.toLowerCase()))
+                    .map((m) => (
+                    <button key={m} onClick={() => { if (currentConversation) setConversationModel(currentConversation.id, m); setModelMenuOpen(false); setCustomModelInput(''); }}
+                      className={`w-full flex items-center gap-2 px-3 py-2 text-sm hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark ${(currentConversation?.model) === m ? 'text-aurora-text-primary dark:text-aurora-text-dark-primary font-medium' : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary'}`}>
+                      <span className="flex-1 text-left truncate">{m}</span>
+                      {currentConversation?.model === m && <Check className="w-3.5 h-3.5 flex-shrink-0" />}
+                    </button>
+                  ))}
+                </>
+              )}
             </div>
           )}
           </div>
@@ -347,19 +439,31 @@ export default function ChatView() {
       </header>
 
       {/* 消息区域 */}
+      {/* P1-6: 消息搜索 */}
+      <MessageSearch messagePath={messagePath} onJumpToMessage={jumpToMessage} />
+
       <div className="flex-1 overflow-y-auto" ref={scrollContainerRef} onScroll={handleScroll}>
         {messagePath.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-6 empty-state-gradient">
-            <h1 className="text-[32px] font-semibold tracking-tight mb-8 bg-gradient-to-r from-aurora-text-primary via-aurora-violet to-aurora-text-primary dark:from-aurora-text-dark-primary dark:via-aurora-violet-dark dark:to-aurora-text-dark-primary bg-clip-text text-transparent">
+            <h1 className="text-[32px] font-semibold tracking-tight mb-3 bg-gradient-to-r from-aurora-text-primary via-aurora-violet to-aurora-text-primary dark:from-aurora-text-dark-primary dark:via-aurora-violet-dark dark:to-aurora-text-dark-primary bg-clip-text text-transparent">
               今天想做点什么？
             </h1>
-            <div className="flex flex-wrap justify-center gap-3 max-w-lg">
+            <p className="text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-8 text-center max-w-md">
+              我可以帮你写代码、解释概念、生成图片，或者聊聊天
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl w-full">
               {suggestions.map((s, idx) => { const Icon = s.icon; return (
-                <button key={idx} onClick={() => setInput(s.text)} className="flex items-center gap-2 px-4 py-2.5 rounded-lg border border-aurora-border-light dark:border-aurora-border-dark text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark hover:border-aurora-text-secondary dark:hover:border-aurora-text-dark-secondary transition-all">
-                  <Icon className="w-4 h-4" /><span>{s.text}</span>
+                <button key={idx} onClick={() => setInput(s.text)} className="flex flex-col items-start gap-2 p-4 rounded-xl border border-aurora-border-light dark:border-aurora-border-dark hover:border-aurora-violet/50 dark:hover:border-aurora-violet-dark/50 hover:bg-aurora-muted-light/50 dark:hover:bg-aurora-muted-dark/50 transition-all text-left group">
+                  <div className="p-2 rounded-lg bg-aurora-muted-light dark:bg-aurora-muted-dark group-hover:bg-aurora-violet/10 dark:group-hover:bg-aurora-violet-dark/10 transition-colors">
+                    <Icon className="w-5 h-5 text-aurora-text-secondary dark:text-aurora-text-dark-secondary group-hover:text-aurora-violet dark:group-hover:text-aurora-violet-dark transition-colors" />
+                  </div>
+                  <span className="text-sm font-medium text-aurora-text-primary dark:text-aurora-text-dark-primary">{s.text}</span>
                 </button>
               ); })}
             </div>
+            <p className="mt-8 text-xs text-aurora-text-secondary/60 dark:text-aurora-text-dark-secondary/60">
+              按 <kbd className="px-1.5 py-0.5 rounded border border-aurora-border-light dark:border-aurora-border-dark text-[10px] font-mono">Ctrl+K</kbd> 打开命令面板
+            </p>
           </div>
         ) : (
           <div className="max-w-3xl mx-auto py-8 px-6 space-y-6">
@@ -372,12 +476,20 @@ export default function ChatView() {
               const textContent = typeof msg.content === 'string' ? msg.content : '';
 
               return (
-                <div key={msg.id} className="group flex gap-4 animate-fade-in">
-                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-aurora-text-secondary dark:bg-aurora-text-dark-secondary' : 'bg-aurora-accent dark:bg-aurora-accent-dark'}`}>
-                    {isUser ? <User className="w-4 h-4 text-white dark:text-black" /> : <Bot className="w-4 h-4 text-white dark:text-black" />}
+                <div key={msg.id} id={`msg-${msg.id}`} className={`group flex gap-3 animate-fade-in ${isUser ? 'flex-row-reverse' : 'flex-row'}`}>
+                  <div className={`flex-shrink-0 w-8 h-8 rounded-full flex items-center justify-center ${isUser ? 'bg-aurora-accent dark:bg-aurora-accent-dark' : 'bg-aurora-muted-light dark:bg-aurora-muted-dark'}`}>
+                    {isUser ? <User className="w-4 h-4 text-white dark:text-black" /> : <Bot className="w-4 h-4 text-aurora-text-secondary dark:text-aurora-text-dark-secondary" />}
                   </div>
-                  <div className="flex-1 min-w-0">
-                    <div className={`relative inline-block max-w-[85%] rounded-3xl px-5 py-3.5 ${isUser ? 'bg-aurora-user-bubble-light dark:bg-aurora-user-bubble-dark text-aurora-text-primary dark:text-aurora-text-dark-primary' : msg.isError ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300' : 'text-aurora-text-primary dark:text-aurora-text-dark-primary'}`}>
+                  {/* P1-4: 移动端操作按钮 */}
+                  <button
+                    onClick={() => setExpandedActionId(expandedActionId === msg.id ? null : msg.id)}
+                    className={`sm:hidden p-2.5 rounded-lg text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark self-start ${isUser ? 'order-3' : ''}`}
+                    aria-label="更多操作"
+                  >
+                    <MoreHorizontal className="w-4 h-4" />
+                  </button>
+                  <div className={`flex-1 min-w-0 ${isUser ? 'flex flex-col items-end' : ''}`}>
+                    <div className={`relative inline-block max-w-[80%] sm:max-w-[75%] rounded-2xl px-4 py-3 leading-relaxed ${isUser ? 'bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black' : msg.isError ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300' : 'bg-aurora-muted-light/50 dark:bg-[#1a1a1f] text-aurora-text-primary dark:text-aurora-text-dark-primary'}`}>
                       {editingId === msg.id ? (
                         <div className="min-w-[300px]">
                           <textarea value={editContent} onChange={(e) => setEditContent(e.target.value)} onKeyDown={handleKeyDown}
@@ -396,28 +508,28 @@ export default function ChatView() {
                     </div>
                     {/* 消息操作栏 */}
                     {editingId !== msg.id && (
-                      <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <div className={`flex items-center gap-1 mt-1.5 ${isUser ? 'flex-row-reverse' : ''} ${expandedActionId === msg.id ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'} transition-opacity`}>
                         {isAssistant && (
                           <>
-                            <button onClick={() => handleCopy(msg.id, textContent)} className="p-1.5 rounded-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark" title="复制">
+                            <button onClick={() => handleCopy(msg.id, textContent)} className="p-1.5 rounded-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark" title="复制" aria-label="复制">
                               {copiedId === msg.id ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
                             </button>
                             {!isStreaming && <RegenerateWithModel messageId={msg.id} streamingMessageId={streamingMessageId} onRegenerate={handleRegenerate} availableModels={availableModels} />}
-                            <button onClick={() => updateMessage(msg.id, { feedback: msg.feedback === 'up' ? undefined : 'up' })} className={`p-1.5 rounded-md hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark ${msg.feedback === 'up' ? 'text-blue-500' : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary'}`} title="有用">
+                            <button onClick={() => updateMessage(msg.id, { feedback: msg.feedback === 'up' ? undefined : 'up' })} className={`p-1.5 rounded-md hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark ${msg.feedback === 'up' ? 'text-blue-500' : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary'}`} title="有用" aria-label={msg.feedback === 'up' ? '取消点赞' : '点赞'}>
                               <ThumbsUp className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => updateMessage(msg.id, { feedback: msg.feedback === 'down' ? undefined : 'down' })} className={`p-1.5 rounded-md hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark ${msg.feedback === 'down' ? 'text-red-500' : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary'}`} title="不太有用">
+                            <button onClick={() => updateMessage(msg.id, { feedback: msg.feedback === 'down' ? undefined : 'down' })} className={`p-1.5 rounded-md hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark ${msg.feedback === 'down' ? 'text-red-500' : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary'}`} title="不太有用" aria-label={msg.feedback === 'down' ? '取消踩' : '踩'}>
                               <ThumbsDown className="w-3.5 h-3.5" />
                             </button>
                             {!isStreaming && msg.childrenIds.length === 0 && (
-                              <button onClick={() => deleteBranch(msg.id)} className="p-1.5 rounded-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark" title="删除回复">
+                              <button onClick={() => deleteBranch(msg.id)} className="p-1.5 rounded-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark" title="删除回复" aria-label="删除回复">
                                 <Trash2 className="w-3.5 h-3.5" />
                               </button>
                             )}
                           </>
                         )}
                         {isUser && (
-                          <button onClick={() => handleEdit(msg.id)} className="p-1.5 rounded-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark" title="编辑">
+                          <button onClick={() => handleEdit(msg.id)} className="p-1.5 rounded-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark" title="编辑" aria-label="编辑消息">
                             <Pencil className="w-3.5 h-3.5" />
                           </button>
                         )}
@@ -426,9 +538,9 @@ export default function ChatView() {
                     {/* 分支切换 */}
                     {isAssistant && hasSiblings && (
                       <div className="flex items-center gap-2 mt-1.5 text-xs text-aurora-text-secondary dark:text-aurora-text-dark-secondary">
-                        <button onClick={() => switchSibling(msg.id, -1)} disabled={siblingIndex === 0} className="p-1 rounded hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark disabled:opacity-30"><ChevronLeft className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => switchSibling(msg.id, -1)} disabled={siblingIndex === 0} className="p-1 rounded hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark disabled:opacity-30" aria-label="上一个回复"><ChevronLeft className="w-3.5 h-3.5" /></button>
                         <span>{siblingIndex + 1} / {siblingTotal}</span>
-                        <button onClick={() => switchSibling(msg.id, 1)} disabled={siblingIndex === siblingTotal - 1} className="p-1 rounded hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark disabled:opacity-30"><ChevronRight className="w-3.5 h-3.5" /></button>
+                        <button onClick={() => switchSibling(msg.id, 1)} disabled={siblingIndex === siblingTotal - 1} className="p-1 rounded hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark disabled:opacity-30" aria-label="下一个回复"><ChevronRight className="w-3.5 h-3.5" /></button>
                       </div>
                     )}
                   </div>
@@ -457,7 +569,7 @@ export default function ChatView() {
       )}
 
       {/* 输入区域 */}
-      <div className="p-4 border-t border-aurora-border-light dark:border-aurora-border-dark">
+      <div className="p-4 pb-[max(1rem,env(safe-area-inset-bottom))] border-t border-aurora-border-light dark:border-aurora-border-dark">
         <div className="max-w-3xl mx-auto">
           {uploadedFiles.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
@@ -472,21 +584,38 @@ export default function ChatView() {
           <div className={`relative flex items-end gap-2 bg-aurora-surface-light dark:bg-aurora-surface-dark border rounded-2xl p-2 shadow-sm transition-all focus-within:shadow-lg focus-within:ring-1 focus-within:ring-aurora-accent/10 dark:focus-within:ring-aurora-accent-dark/10 ${dragOver ? 'border-blue-500 dark:border-blue-400 ring-2 ring-blue-500/20' : 'border-aurora-border-light dark:border-aurora-border-dark focus-within:border-aurora-text-primary/20 dark:focus-within:border-aurora-text-dark-primary/20'}`}
             onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}>
             <input type="file" ref={fileInputRef} onChange={handleFileUpload} className="hidden" multiple />
-            <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-lg text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" title="上传文件">
+            <button onClick={() => fileInputRef.current?.click()} className="p-2 rounded-lg text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors" title="上传文件" aria-label="上传文件">
               <Paperclip className="w-5 h-5" />
             </button>
             <PromptTemplates onSelect={(content) => setInput(content)} />
-            <textarea ref={textareaRef} value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={handleKeyDown} onPaste={handlePaste}
+            <textarea ref={textareaRef} value={input} onChange={(e) => {
+              setInput(e.target.value);
+              // P0-6: 草稿自动保存（debounce 300ms）
+              if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
+              draftTimerRef.current = setTimeout(() => {
+                if (currentConversationId) {
+                  try {
+                    const drafts = JSON.parse(localStorage.getItem('aurora-drafts') || '{}');
+                    if (e.target.value) {
+                      drafts[currentConversationId] = e.target.value;
+                    } else {
+                      delete drafts[currentConversationId];
+                    }
+                    localStorage.setItem('aurora-drafts', JSON.stringify(drafts));
+                  } catch { /* ignore */ }
+                }
+              }, 300);
+            }} onKeyDown={handleKeyDown} onPaste={handlePaste}
               placeholder={dragOver ? "拖放文件到此处..." : "发送消息...（拖拽或粘贴文件）"}
               className="flex-1 bg-transparent px-2 py-2.5 max-h-[200px] focus:outline-none resize-none text-aurora-text-primary dark:text-aurora-text-dark-primary placeholder:text-aurora-text-secondary dark:placeholder:text-aurora-text-dark-secondary"
               rows={1} disabled={!!streamingMessageId} style={{ minHeight: '24px', height: 'auto' }} />
             {streamingMessageId ? (
-              <button onClick={handleStop} className="p-2 rounded-lg bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black hover:bg-aurora-accent-hover dark:hover:bg-aurora-accent-dark-hover active:scale-95 transition-all">
+              <button onClick={handleStop} className="p-2 rounded-lg bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black hover:bg-aurora-accent-hover dark:hover:bg-aurora-accent-dark-hover active:scale-95 transition-all" aria-label="停止生成">
                 <Square className="w-5 h-5 fill-current" />
               </button>
             ) : (
               <button onClick={handleSend} disabled={!input.trim() && uploadedFiles.length === 0}
-                className="p-2 rounded-lg bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black disabled:opacity-30 disabled:cursor-not-allowed hover:bg-aurora-accent-hover dark:hover:bg-aurora-accent-dark-hover hover:scale-105 active:scale-95 transition-all">
+                className="p-2 rounded-lg bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black disabled:opacity-30 disabled:cursor-not-allowed hover:bg-aurora-accent-hover dark:hover:bg-aurora-accent-dark-hover hover:scale-105 active:scale-95 transition-all" aria-label="发送消息">
                 <Send className="w-5 h-5" />
               </button>
             )}
@@ -494,6 +623,16 @@ export default function ChatView() {
           <p className="text-center text-xs text-aurora-text-secondary dark:text-aurora-text-dark-secondary mt-2">AI 生成内容可能不准确，请自行核实。</p>
         </div>
       </div>
+
+      {/* P2-2: 图片 Lightbox */}
+      {lightboxSrc && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 cursor-pointer animate-fade-in"
+          onClick={() => setLightboxSrc(null)}
+        >
+          <img src={lightboxSrc} alt="预览" className="max-w-full max-h-full object-contain rounded-lg shadow-2xl" />
+        </div>
+      )}
     </div>
   );
 }

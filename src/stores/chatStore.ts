@@ -120,6 +120,101 @@ export function flushStorage(): void {
   }
 }
 
+/** P0-4: 数据损坏检测与自动修复 */
+function validateAndRepair(state: ChatState): void {
+  const { conversations, messages } = state;
+  let repaired = false;
+
+  for (const conv of conversations) {
+    // 检查 rootMessageId 是否存在
+    if (conv.rootMessageId && !messages[conv.rootMessageId]) {
+      console.warn(`[数据修复] 会话 "${conv.title}" 的 rootMessageId 无效，已清除`);
+      conv.rootMessageId = null;
+      conv.currentLeafId = null;
+      repaired = true;
+      continue;
+    }
+
+    // 检查 currentLeafId 是否存在
+    if (conv.currentLeafId && !messages[conv.currentLeafId]) {
+      console.warn(`[数据修复] 会话 "${conv.title}" 的 currentLeafId 无效，尝试重建`);
+      // 尝试找到最深的可达叶子节点
+      const leaf = findReachableLeaf(conv.rootMessageId, messages);
+      conv.currentLeafId = leaf;
+      if (!leaf) {
+        conv.rootMessageId = null;
+      }
+      repaired = true;
+    }
+
+    // 如果 currentLeafId 存在，验证从它到根的路径完整性
+    if (conv.currentLeafId) {
+      const pathValid = validatePath(conv.currentLeafId, messages);
+      if (!pathValid) {
+        console.warn(`[数据修复] 会话 "${conv.title}" 的消息路径不完整，尝试重建`);
+        const leaf = findReachableLeaf(conv.rootMessageId, messages);
+        conv.currentLeafId = leaf;
+        if (!leaf) {
+          conv.rootMessageId = null;
+        }
+        repaired = true;
+      }
+    }
+  }
+
+  // 清理 messages 中的悬空引用
+  const messageIds = new Set(Object.keys(messages));
+  for (const [id, msg] of Object.entries(messages)) {
+    // 清理无效的 parentId
+    if (msg.parentId && !messageIds.has(msg.parentId)) {
+      console.warn(`[数据修复] 消息 ${id} 的 parentId 无效，已清除`);
+      msg.parentId = null;
+      repaired = true;
+    }
+    // 清理无效的 childrenIds
+    const validChildren = msg.childrenIds.filter(cid => messageIds.has(cid));
+    if (validChildren.length !== msg.childrenIds.length) {
+      console.warn(`[数据修复] 消息 ${id} 包含无效子节点，已清理`);
+      msg.childrenIds = validChildren;
+      repaired = true;
+    }
+  }
+
+  if (repaired) {
+    console.warn('[数据修复] 完成，部分数据已自动修复');
+  }
+}
+
+function findReachableLeaf(rootId: string | null, messages: Record<string, MessageNode>): string | null {
+  if (!rootId || !messages[rootId]) return null;
+  let current = rootId;
+  const visited = new Set<string>();
+  while (current && !visited.has(current)) {
+    visited.add(current);
+    const msg = messages[current];
+    if (!msg) break;
+    if (msg.childrenIds.length === 0) return current;
+    // 取最后一个子节点
+    const lastChild = msg.childrenIds[msg.childrenIds.length - 1];
+    if (!messages[lastChild]) return current;
+    current = lastChild;
+  }
+  return current;
+}
+
+function validatePath(leafId: string, messages: Record<string, MessageNode>): boolean {
+  let currentId: string | null = leafId;
+  const visited = new Set<string>();
+  while (currentId && !visited.has(currentId)) {
+    visited.add(currentId);
+    const msg: MessageNode | undefined = messages[currentId];
+    if (!msg) return false;
+    currentId = msg.parentId;
+  }
+  // 如果遍历到 null（根节点），路径完整
+  return currentId === null;
+}
+
 function extractTitleFromContent(content: string | Message['content']): string {
   const maxLen = 30;
   if (typeof content === 'string') {
@@ -537,6 +632,11 @@ export const useChatStore = create<ChatState>()(
         pinnedIds: state.pinnedIds,
         archivedIds: state.archivedIds,
       }),
+      // P0-4: 数据损坏检测与自动修复
+      onRehydrateStorage: () => (state) => {
+        if (!state) return;
+        validateAndRepair(state);
+      },
     }
   )
 );

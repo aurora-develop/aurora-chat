@@ -110,6 +110,16 @@
 }
 
 @layer utilities {
+  /* Firefox 滚动条样式 */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: theme('colors.aurora-border-light') transparent;
+  }
+  .dark * {
+    scrollbar-color: theme('colors.aurora-border-dark') transparent;
+  }
+
+  /* Webkit 滚动条样式 */
   ::-webkit-scrollbar {
     @apply w-1.5 h-1.5;
   }
@@ -119,11 +129,19 @@
   }
 
   ::-webkit-scrollbar-thumb {
-    @apply bg-aurora-border-light dark:bg-aurora-border-dark rounded-full;
+    @apply bg-aurora-border-light/60 dark:bg-aurora-border-dark/60 rounded-full;
   }
 
   ::-webkit-scrollbar-thumb:hover {
-    @apply bg-aurora-text-secondary/40 dark:bg-aurora-text-dark-secondary/40;
+    @apply bg-aurora-text-secondary/30 dark:bg-aurora-text-dark-secondary/30;
+  }
+
+  /* 侧边栏对话列表：仅 hover 时显示滚动条 */
+  .sidebar-scroll::-webkit-scrollbar-thumb {
+    @apply bg-transparent;
+  }
+  .sidebar-scroll:hover::-webkit-scrollbar-thumb {
+    @apply bg-aurora-border-light dark:bg-aurora-border-dark;
   }
 
   ::selection {
@@ -132,5 +150,15 @@
 
   .dark ::selection {
     @apply bg-white text-black;
+  }
+
+  /* P2-4: 减少动画偏好支持 */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+      scroll-behavior: auto !important;
+    }
   }
 }

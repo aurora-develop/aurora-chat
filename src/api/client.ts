@@ -37,16 +37,48 @@ function getApiConfig(): { baseUrl: string; apiKey: string; isCustom: boolean } 
   }
 }
 
-/** 构建请求 headers（消除 4 处重复） */
-function createHeaders(apiConfig: { apiKey: string; isCustom: boolean }, extra: Record<string, string> = {}): Record<string, string> {
-  const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
-    ...extra,
-  };
+/** 构建请求 headers（消除 4 处重复）。
+ *  GET 请求不加 Content-Type，避免触发 CORS preflight OPTIONS。 */
+function createHeaders(apiConfig: { apiKey: string; isCustom: boolean }, method = 'POST', extra: Record<string, string> = {}): Record<string, string> {
+  const headers: Record<string, string> = { ...extra };
+  if (method !== 'GET') {
+    headers['Content-Type'] = 'application/json';
+  }
   if (apiConfig.apiKey) {
     headers['Authorization'] = `Bearer ${apiConfig.apiKey}`;
   }
   return headers;
+}
+
+/** P1-5: 判断错误是否可重试 */
+function isRetryableError(error: unknown): boolean {
+  if (error instanceof DOMException && error.name === 'AbortError') return false;
+  const msg = (error as Error).message || '';
+  if (msg.includes('Failed to fetch') || msg.includes('NetworkError')) return true;
+  const statusMatch = msg.match(/API Error: (\d+)/);
+  if (statusMatch) {
+    const status = parseInt(statusMatch[1]);
+    return status === 429 || status === 502 || status === 503 || status === 504;
+  }
+  return false;
+}
+
+/** P1-5: 带指数退避的重试包装 */
+async function withRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      if (attempt >= maxRetries || !isRetryableError(error)) throw error;
+      // 指数退避：1s, 2s, 4s
+      const delay = Math.pow(2, attempt) * 1000;
+      console.warn(`[重试] 第 ${attempt + 1} 次重试，等待 ${delay}ms...`);
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+  throw lastError;
 }
 
 export interface RequestConfig {
@@ -62,25 +94,28 @@ export async function apiRequest<T>(
   config: RequestConfig = {}
 ): Promise<T> {
   const { method = 'POST', headers = {}, body, stream = false, signal } = config;
-  const apiConfig = getApiConfig();
 
-  const response = await fetch(`${apiConfig.baseUrl}${endpoint}`, {
-    method,
-    headers: { ...createHeaders(apiConfig), ...headers },
-    body: body ? JSON.stringify(body) : undefined,
-    signal,
+  return withRetry(async () => {
+    const apiConfig = getApiConfig();
+
+    const response = await fetch(`${apiConfig.baseUrl}${endpoint}`, {
+      method,
+      headers: { ...createHeaders(apiConfig, method), ...headers },
+      body: body ? JSON.stringify(body) : undefined,
+      signal,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`API Error: ${response.status} - ${error}`);
+    }
+
+    if (stream) {
+      return response as any;
+    }
+
+    return response.json();
   });
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`API Error: ${response.status} - ${error}`);
-  }
-
-  if (stream) {
-    return response as any;
-  }
-
-  return response.json();
 }
 
 export async function* streamSSE<T>(

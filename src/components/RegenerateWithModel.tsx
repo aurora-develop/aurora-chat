@@ -31,6 +31,7 @@ export default function RegenerateWithModel({
         disabled={!!streamingMessageId}
         className="px-1.5 rounded-l-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark disabled:opacity-30"
         title="重新生成"
+        aria-label="重新生成"
       >
         <RefreshCw className="w-3.5 h-3.5" />
       </button>
@@ -38,6 +39,7 @@ export default function RegenerateWithModel({
         onClick={() => setOpen((v) => !v)}
         className="px-1.5 rounded-r-md text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark disabled:opacity-30"
         title="选择模型重新生成"
+        aria-label="选择模型重新生成"
       >
         <ChevronDown className="w-3 h-3" />
       </button>

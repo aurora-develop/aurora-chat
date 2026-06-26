@@ -40,6 +40,7 @@ export default function PromptTemplates({ onSelect }: { onSelect: (content: stri
         onClick={() => setOpen((v) => !v)}
         className="p-2 rounded-lg text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors"
         title="提示词模板"
+        aria-label="提示词模板"
       >
         <BookOpen className="w-5 h-5" />
       </button>

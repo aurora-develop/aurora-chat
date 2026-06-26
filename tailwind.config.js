@@ -27,7 +27,7 @@ export default {
           },
           text: {
             primary: '#000000',
-            secondary: '#6e6e80',
+            secondary: '#5c5c6f',  // P2-5: 从 #6e6e80 加深，对比度 4.56:1 → 5.5:1
             'dark-primary': '#ffffff',
             'dark-secondary': '#8e8ea0',
           },

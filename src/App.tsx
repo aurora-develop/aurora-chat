@@ -7,6 +7,7 @@ import {
 import { useChatStore } from './stores/chatStore';
 import { useThemeStore } from './stores/themeStore';
 import CommandPalette from './components/CommandPalette';
+import ErrorBoundary from './components/ErrorBoundary';
 
 const ChatView = lazy(() => import('./components/ChatView'));
 const ImagesView = lazy(() => import('./components/ImagesView'));
@@ -26,6 +27,7 @@ function App() {
   const [renameValue, setRenameValue] = useState('');
   const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
   const [showClearConfirm, setShowClearConfirm] = useState(false);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const {
     conversations,
@@ -115,7 +117,7 @@ function App() {
 
   const handleDelete = (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    deleteConversation(id);
+    setDeleteConfirmId(id);
     setMenuOpenId(null);
   };
 
@@ -170,13 +172,14 @@ function App() {
     const showMenu = menuOpenId === conv.id;
 
     return (
-      <div
+      <button
         key={conv.id}
-        className={`group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer transition-colors ${
+        className={`group flex items-center gap-2 px-3 py-2 rounded-lg transition-colors text-left w-full ${
           active
             ? 'bg-aurora-muted-light dark:bg-aurora-muted-dark border-l-2 border-aurora-accent dark:border-aurora-accent-dark'
             : 'border-l-2 border-transparent hover:bg-aurora-muted-light/50 dark:hover:bg-aurora-muted-dark/50'
         }`}
+        aria-current={active ? 'page' : undefined}
         onClick={() => {
           setCurrentConversation(conv.id);
           setActiveTab('chat');
@@ -200,7 +203,7 @@ function App() {
         )}
 
         {renamingId !== conv.id && (
-          <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100">
+          <div className={`flex items-center gap-0.5 ${isMobile ? 'opacity-100' : 'opacity-0 group-hover:opacity-100 focus-within:opacity-100'}`}>
             {isPinned(conv.id) && (
               <Pin className="w-3 h-3 text-aurora-accent dark:text-aurora-accent-dark fill-current" />
             )}
@@ -242,7 +245,7 @@ function App() {
                     <div className="my-1 border-t border-aurora-border-light dark:border-aurora-border-dark" />
                     <button
                       onClick={(e) => handleDelete(e, conv.id)}
-                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-aurora-error dark:text-aurora-error-dark hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark"
+                      className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-500 dark:text-red-400 hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       <span>删除</span>
@@ -253,7 +256,7 @@ function App() {
             </div>
           </div>
         )}
-      </div>
+      </button>
     );
   };
 
@@ -278,6 +281,7 @@ function App() {
       // Escape: 关闭弹窗
       if (e.key === 'Escape') {
         if (showClearConfirm) { setShowClearConfirm(false); return; }
+        if (deleteConfirmId) { setDeleteConfirmId(null); return; }
         if (menuOpenId) { setMenuOpenId(null); return; }
         if (renamingId) { setRenamingId(null); return; }
         return;
@@ -346,7 +350,7 @@ function App() {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto px-3">
+      <div className="flex-1 overflow-y-auto px-3 sidebar-scroll">
         {pinnedConversations.length > 0 && (
           <div className="mb-2">
             <div className="px-3 py-1.5 text-xs font-medium text-aurora-text-secondary dark:text-aurora-text-dark-secondary">
@@ -387,7 +391,7 @@ function App() {
       <div className="px-3 py-2 border-t border-aurora-border-light dark:border-aurora-border-dark">
         <button
           onClick={() => setShowClearConfirm(true)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:text-aurora-error dark:hover:text-aurora-error-dark hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark rounded-lg transition-colors"
+          className="w-full flex items-center justify-center gap-2 px-3 py-2 text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:text-red-500 dark:hover:text-red-500-dark hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark rounded-lg transition-colors"
         >
           <Trash2 className="w-3.5 h-3.5" />
           <span>清空历史</span>
@@ -395,31 +399,64 @@ function App() {
       </div>
 
       {showClearConfirm && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-xl shadow-xl p-5">
-            <div className="flex items-center gap-3 mb-3">
-              <div className="p-2 rounded-full bg-aurora-error/10 text-aurora-error dark:text-aurora-error-dark">
-                <AlertTriangle className="w-5 h-5" />
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6" role="dialog" aria-modal="true" aria-labelledby="clear-dialog-title" onClick={() => setShowClearConfirm(false)}>
+          <div className="w-full max-w-md bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-2xl shadow-2xl p-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-full bg-red-500/10 text-red-500 dark:text-red-400">
+                <AlertTriangle className="w-6 h-6" />
               </div>
-              <h3 className="text-base font-semibold text-aurora-text-primary dark:text-aurora-text-dark-primary">
+              <h3 id="clear-dialog-title" className="text-lg font-semibold text-aurora-text-primary dark:text-aurora-text-dark-primary">
                 清空所有历史？
               </h3>
             </div>
-            <p className="text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-5">
+            <p className="text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-8">
               此操作将删除所有会话和消息，且无法撤销。
             </p>
-            <div className="flex justify-end gap-2">
+            <div className="flex justify-center gap-4">
               <button
                 onClick={() => setShowClearConfirm(false)}
-                className="px-4 py-2 text-sm border border-aurora-border-light dark:border-aurora-border-dark rounded-lg hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark"
+                className="flex-1 px-6 py-3 text-sm font-medium border border-aurora-border-light dark:border-aurora-border-dark rounded-xl hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors"
               >
                 取消
               </button>
               <button
                 onClick={() => { clearAllConversations(); setShowClearConfirm(false); }}
-                className="px-4 py-2 text-sm bg-aurora-error text-white rounded-lg hover:bg-aurora-error-hover dark:bg-aurora-error-dark dark:hover:bg-aurora-error-dark-hover"
+                className="flex-1 px-6 py-3 text-sm font-medium bg-red-500 text-white rounded-xl hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 transition-colors"
               >
                 确认清空
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 删除单个会话确认弹窗 */}
+      {deleteConfirmId && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-6" role="dialog" aria-modal="true" onClick={() => setDeleteConfirmId(null)}>
+          <div className="w-full max-w-md bg-aurora-surface-light dark:bg-aurora-surface-dark border border-aurora-border-light dark:border-aurora-border-dark rounded-2xl shadow-2xl p-8" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-3 mb-4">
+              <div className="p-2.5 rounded-full bg-red-500/10 text-red-500 dark:text-red-400">
+                <AlertTriangle className="w-6 h-6" />
+              </div>
+              <h3 className="text-lg font-semibold text-aurora-text-primary dark:text-aurora-text-dark-primary">
+                删除会话？
+              </h3>
+            </div>
+            <p className="text-sm text-aurora-text-secondary dark:text-aurora-text-dark-secondary mb-8">
+              此操作将删除该会话及其所有消息，且无法撤销。
+            </p>
+            <div className="flex justify-center gap-4">
+              <button
+                onClick={() => setDeleteConfirmId(null)}
+                className="flex-1 px-6 py-3 text-sm font-medium border border-aurora-border-light dark:border-aurora-border-dark rounded-xl hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => { deleteConversation(deleteConfirmId); setDeleteConfirmId(null); }}
+                className="flex-1 px-6 py-3 text-sm font-medium bg-red-500 text-white rounded-xl hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-700 transition-colors"
+              >
+                确认删除
               </button>
             </div>
           </div>
@@ -430,20 +467,23 @@ function App() {
 
   const sidebarContent = (
     <>
-      <div className="h-14 flex items-center justify-between px-4 border-b border-aurora-border-light dark:border-aurora-border-dark">
-        <h1 className="text-lg font-semibold tracking-tight text-aurora-text-primary dark:text-aurora-text-dark-primary">
-          Aurora Chat
-        </h1>
+      <div className={`h-14 flex items-center ${collapsed && !isMobile ? 'justify-center' : 'justify-between px-4'} border-b border-aurora-border-light dark:border-aurora-border-dark`}>
+        {(!collapsed || isMobile) && (
+          <h1 className="text-lg font-semibold tracking-tight text-aurora-text-primary dark:text-aurora-text-dark-primary truncate">
+            Aurora Chat
+          </h1>
+        )}
         <button
           onClick={() => isMobile ? setMobileOpen(false) : setCollapsed(!collapsed)}
-          className="p-1 rounded-md hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors"
+          className="p-2 rounded-md hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors flex-shrink-0"
+          aria-label={isMobile ? '关闭侧边栏' : collapsed ? '展开侧边栏' : '折叠侧边栏'}
         >
           {isMobile ? (
             <X className="w-5 h-5 text-aurora-text-secondary dark:text-aurora-text-dark-secondary" />
           ) : collapsed ? (
-            <ChevronRight className="w-4 h-4 text-aurora-text-secondary dark:text-aurora-text-dark-secondary" />
+            <ChevronRight className="w-5 h-5 text-aurora-text-secondary dark:text-aurora-text-dark-secondary" />
           ) : (
-            <ChevronLeft className="w-4 h-4 text-aurora-text-secondary dark:text-aurora-text-dark-secondary" />
+            <ChevronLeft className="w-5 h-5 text-aurora-text-secondary dark:text-aurora-text-dark-secondary" />
           )}
         </button>
       </div>
@@ -462,15 +502,22 @@ function App() {
             <button
               key={tab.id}
               onClick={() => handleTabClick(tab.id)}
-              className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all duration-150 ${
+              className={`w-full flex items-center ${collapsed && !isMobile ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg transition-all duration-150 relative group/tab ${
                 isActive
                   ? 'bg-aurora-accent text-white dark:bg-aurora-accent-dark dark:text-black'
                   : 'text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark'
               }`}
-              title={collapsed ? tab.label : undefined}
+              aria-label={tab.label}
+              role="tab"
+              aria-selected={isActive}
             >
               <Icon className="w-5 h-5 flex-shrink-0" />
               {(!collapsed || isMobile) && <span className="text-sm font-medium">{tab.label}</span>}
+              {collapsed && !isMobile && (
+                <span className="absolute left-full ml-2 px-2 py-1 text-xs rounded-md bg-aurora-surface-dark dark:bg-aurora-surface-light text-white dark:text-black opacity-0 group-hover/tab:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
+                  {tab.label}
+                </span>
+              )}
             </button>
           );
         })}
@@ -479,14 +526,17 @@ function App() {
       <div className="p-2 border-t border-aurora-border-light dark:border-aurora-border-dark">
         <button
           onClick={cycleTheme}
-          className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors ${
-            collapsed && !isMobile ? 'justify-center' : ''
-          }`}
-          title={collapsed && !isMobile ? `主题: ${theme}` : undefined}
+          className={`w-full flex items-center ${collapsed && !isMobile ? 'justify-center' : 'gap-3'} px-3 py-2.5 rounded-lg text-aurora-text-secondary dark:text-aurora-text-dark-secondary hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors relative group/theme`}
+          aria-label={`切换主题: ${theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'}`}
         >
           <ThemeIcon className="w-5 h-5 flex-shrink-0" />
           {(!collapsed || isMobile) && (
             <span className="text-sm font-medium capitalize">
+              {theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'}
+            </span>
+          )}
+          {collapsed && !isMobile && (
+            <span className="absolute left-full ml-2 px-2 py-1 text-xs rounded-md bg-aurora-surface-dark dark:bg-aurora-surface-light text-white dark:text-black opacity-0 group-hover/theme:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-50 shadow-lg">
               {theme === 'system' ? '跟随系统' : theme === 'light' ? '浅色' : '深色'}
             </span>
           )}
@@ -496,7 +546,8 @@ function App() {
   );
 
   return (
-    <div className="flex h-screen bg-aurora-bg-light dark:bg-aurora-bg-dark transition-colors duration-150 overflow-hidden">
+    <ErrorBoundary level="global">
+    <div className="flex h-screen h-[100dvh] bg-aurora-bg-light dark:bg-aurora-bg-dark transition-colors duration-150 overflow-hidden">
       {/* 桌面端侧边栏 */}
       {!isMobile && (
         <aside
@@ -529,6 +580,7 @@ function App() {
             <button
               onClick={() => setMobileOpen(true)}
               className="p-2 -ml-2 rounded-lg hover:bg-aurora-muted-light dark:hover:bg-aurora-muted-dark transition-colors"
+              aria-label="打开侧边栏"
             >
               <Menu className="w-5 h-5 text-aurora-text-primary dark:text-aurora-text-dark-primary" />
             </button>
@@ -547,10 +599,10 @@ function App() {
               </svg>
             </div>
           }>
-            {activeTab === 'chat' && <ChatView />}
-            {activeTab === 'images' && <ImagesView />}
-            {activeTab === 'audio' && <AudioView />}
-            {activeTab === 'settings' && <SettingsView />}
+            {activeTab === 'chat' && <ErrorBoundary level="view"><ChatView /></ErrorBoundary>}
+            {activeTab === 'images' && <ErrorBoundary level="view"><ImagesView /></ErrorBoundary>}
+            {activeTab === 'audio' && <ErrorBoundary level="view"><AudioView /></ErrorBoundary>}
+            {activeTab === 'settings' && <ErrorBoundary level="view"><SettingsView /></ErrorBoundary>}
           </Suspense>
         </div>
       </main>
@@ -562,6 +614,7 @@ function App() {
         onNavigate={(tab) => handleTabClick(tab as Tab)}
       />
     </div>
+    </ErrorBoundary>
   );
 }
 
